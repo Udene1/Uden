@@ -1,0 +1,26 @@
+{
+  "name": "ai-work-partner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-tenant, cost-aware AI work partner — intelligent task routing with quality escalation",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:engine": "npm run dev --workspace=packages/engine",
+    "dev:dashboard": "npm run dev --workspace=packages/dashboard",
+    "dev": "concurrently \"npm run dev:engine\" \"npm run dev:dashboard\"",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate:local": "npm run db:migrate:local --workspace=packages/engine",
+    "db:migrate:remote": "npm run db:migrate:remote --workspace=packages/engine"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

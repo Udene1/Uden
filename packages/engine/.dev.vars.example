@@ -1,0 +1,13 @@
+# AI Provider API Keys (Platform-wide)
+# At least one provider is required for the system to function.
+
+OPENAI_API_KEY=sk-your-openai-key-here
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
+GOOGLE_AI_API_KEY=AIzaSy-your-google-ai-key-here
+DEEPSEEK_API_KEY=sk-your-deepseek-key-here
+
+# Encryption key for tenant-provided API keys (32 hex chars)
+ENCRYPTION_KEY=0123456789abcdef0123456789abcdef
+
+# Dashboard origin for CORS (comma-separated for multiple)
+DASHBOARD_ORIGIN=http://localhost:3000

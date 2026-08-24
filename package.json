@@ -13,6 +13,7 @@
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:record": "npm run test:record --workspace=packages/engine",
     "db:migrate:local": "npm run db:migrate:local --workspace=packages/engine",
     "db:migrate:remote": "npm run db:migrate:remote --workspace=packages/engine"
   },

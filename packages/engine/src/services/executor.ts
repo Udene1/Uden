@@ -27,7 +27,14 @@ export async function executeTask(
   const budgetLeft = Math.max(0, monthlyBudget - spent);
 
   const classification = classifyTask(prompt);
-  const routing = routeTask(classification.complexity, classification.domain, qualityPref, budgetLeft);
+  const routing = routeTask(
+    classification.complexity,
+    classification.domain,
+    qualityPref,
+    budgetLeft,
+    classification.estimatedInputTokens,
+    classification.estimatedOutputTokens
+  );
 
   const initialStatus: TaskStatus = permissionless ? 'processing' : 'awaiting-approval';
 
@@ -55,7 +62,8 @@ export async function executeTask(
     };
   }
 
-  await createTask(env.DB, task);
+  // Persist task and associated routing plan
+  await createTask(env.DB, task, routing);
 
   if (!permissionless) {
     return { task, routing };
@@ -82,41 +90,50 @@ export async function runTaskExecution(
 
   try {
     const response = await provider.execute(task.prompt, primaryModel);
+
+    // Atomically bill and record the primary model attempt
+    const primaryCost = await recordUsage(
+      env,
+      task.tenantId,
+      task.id,
+      primaryModel,
+      response.promptTokens,
+      response.completionTokens
+    );
+
+    totalTokensIn = response.promptTokens;
+    totalTokensOut = response.completionTokens;
+    totalCostCents = primaryCost;
+
     const quality = checkQuality(response.result, expectedFormat, task.prompt);
 
     if (quality.shouldEscalate && fallbackChain.length > 0) {
       const escalated = await escalateTask(
-        env, task.prompt, expectedFormat, fallbackChain, task.id, task.tenantId, quality
+        env,
+        task.prompt,
+        expectedFormat,
+        primaryModel,
+        fallbackChain,
+        task.id,
+        task.tenantId,
+        quality
       );
 
       if (escalated) {
         finalOutput = escalated.response.result;
         finalModelUsed = escalated.modelId;
         finalQualityScore = escalated.quality.overallScore;
-        totalTokensIn = response.promptTokens + escalated.response.promptTokens;
-        totalTokensOut = response.completionTokens + escalated.response.completionTokens;
+        totalTokensIn += escalated.totalEscalationTokensIn;
+        totalTokensOut += escalated.totalEscalationTokensOut;
+        totalCostCents += escalated.totalEscalationCostCents;
         escalationCount = escalated.attemptNumber - 1;
-
-        totalCostCents = await recordUsage(
-          env, task.tenantId, task.id, finalModelUsed, totalTokensIn, totalTokensOut
-        );
       } else {
         finalOutput = response.result;
         finalQualityScore = quality.overallScore;
-        totalTokensIn = response.promptTokens;
-        totalTokensOut = response.completionTokens;
-        totalCostCents = await recordUsage(
-          env, task.tenantId, task.id, primaryModel, totalTokensIn, totalTokensOut
-        );
       }
     } else {
       finalOutput = response.result;
       finalQualityScore = quality.overallScore;
-      totalTokensIn = response.promptTokens;
-      totalTokensOut = response.completionTokens;
-      totalCostCents = await recordUsage(
-        env, task.tenantId, task.id, primaryModel, totalTokensIn, totalTokensOut
-      );
     }
 
     const completedTaskUpdates: Partial<Task> = {
@@ -124,7 +141,7 @@ export async function runTaskExecution(
       output: finalOutput,
       modelUsed: finalModelUsed,
       qualityScore: finalQualityScore,
-      totalCostCents,
+      totalCostCents: Math.round(totalCostCents * 100) / 100,
       tokensIn: totalTokensIn,
       tokensOut: totalTokensOut,
       escalationCount,
@@ -138,7 +155,9 @@ export async function runTaskExecution(
       output: finalOutput,
       modelUsed: finalModelUsed,
       qualityScore: finalQualityScore,
-      costCents: totalCostCents,
+      costCents: completedTaskUpdates.totalCostCents,
+      tokensIn: totalTokensIn,
+      tokensOut: totalTokensOut,
       escalationCount
     };
   } catch (error: any) {

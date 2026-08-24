@@ -1,32 +1,71 @@
-import { QualityReport, QualityCheckResult, REFUSAL_PATTERNS } from '@ai-work-partner/shared';
+import {
+  QualityReport,
+  QualityCheckResult,
+  REFUSAL_PATTERNS,
+  REPETITION_NGRAM_SIZE,
+  MAX_REPETITION_COUNT,
+  MIN_OUTPUT_LENGTH,
+  QUALITY_THRESHOLD
+} from '@ai-work-partner/shared';
+
+/**
+ * Slide a window of size N over a token list to count duplicate sequences.
+ */
+function findMaxNgramRepetition(tokens: string[], n: number): { count: number; ngram: string } {
+  if (tokens.length < n) return { count: 0, ngram: '' };
+
+  const counts = new Map<string, number>();
+  let maxCount = 0;
+  let topNgram = '';
+
+  for (let i = 0; i <= tokens.length - n; i++) {
+    const ngram = tokens.slice(i, i + n).join(' ').toLowerCase();
+    const count = (counts.get(ngram) || 0) + 1;
+    counts.set(ngram, count);
+    if (count > maxCount) {
+      maxCount = count;
+      topNgram = ngram;
+    }
+  }
+
+  return { count: maxCount, ngram: topNgram };
+}
 
 export function checkQuality(output: string, expectedFormat: string, prompt: string): QualityReport {
   const checks: QualityCheckResult[] = [];
   let shouldEscalate = false;
   let overallScore = 100;
 
-  // 1. Empty/Minimal Check
-  const trimmed = output ? output.trim() : '';
-  const isMinimal = trimmed.length < 20;
+  const raw = output || '';
+  const trimmed = raw.trim();
+
+  // ─────────────────────────────────────────────
+  // 1. Empty / Minimal Output Check
+  // ─────────────────────────────────────────────
+  const isMinimal = trimmed.length < MIN_OUTPUT_LENGTH;
   checks.push({
     name: 'Empty/Minimal Check',
     passed: !isMinimal,
     score: isMinimal ? 0 : 100,
     severity: 'error',
-    reason: isMinimal ? 'Output is empty or too short (< 20 chars)' : 'Length is sufficient'
+    reason: isMinimal
+      ? `Output is empty or below minimum threshold (${trimmed.length}/${MIN_OUTPUT_LENGTH} chars)`
+      : 'Output length satisfies minimum threshold'
   });
   if (isMinimal) {
     shouldEscalate = true;
-    overallScore -= 100;
+    overallScore = 0;
   }
 
-  // 2. Refusal Check
+  // ─────────────────────────────────────────────
+  // 2. Refusal Pattern Detection
+  // ─────────────────────────────────────────────
   let refusalFound = false;
-  let refusalReason = '';
+  let refusalReason = 'No refusal detected';
   for (const pattern of REFUSAL_PATTERNS) {
     if (pattern.test(trimmed)) {
       refusalFound = true;
-      refusalReason = `Matched refusal pattern: ${pattern.source}`;
+      refusalReason = `Matched AI refusal pattern: ${pattern.source}`;
       break;
     }
   }
@@ -35,76 +74,141 @@ export function checkQuality(output: string, expectedFormat: string, prompt: str
     passed: !refusalFound,
     score: refusalFound ? 0 : 100,
     severity: 'error',
-    reason: refusalFound ? refusalReason : 'No refusal detected'
+    reason: refusalReason
   });
   if (refusalFound) {
     shouldEscalate = true;
-    overallScore -= 80;
+    overallScore = Math.min(overallScore, 20);
   }
 
-  // 3. Truncation Check
-  const codeFences = (output.match(/```/g) || []).length;
-  const isTruncated = codeFences % 2 !== 0 || output.endsWith('...') || output.endsWith('and');
+  // ─────────────────────────────────────────────
+  // 3. Truncation & Fence Integrity Check
+  // ─────────────────────────────────────────────
+  const codeFences = (raw.match(/```/g) || []).length;
+  const hasUnclosedFence = codeFences % 2 !== 0;
+  const endsAbruptly = /(?:\.\.\.|[a-zA-Z0-9],\s*$|\b(?:and|the|with|because|that|in|to|of)\s*$)/i.test(trimmed);
+  const isTruncated = hasUnclosedFence || (trimmed.length > 20 && endsAbruptly);
+
+  let truncationReason = 'Output completed naturally with closed fences and punctuation';
+  if (hasUnclosedFence) {
+    truncationReason = 'Output contains an unclosed code block fence (truncated markdown)';
+  } else if (endsAbruptly) {
+    truncationReason = 'Output ends abruptly mid-sentence or with trailing conjunction';
+  }
+
   checks.push({
     name: 'Truncation Check',
     passed: !isTruncated,
     score: isTruncated ? 30 : 100,
     severity: 'error',
-    reason: isTruncated ? 'Output appears truncated (unclosed code fence or abrupt ending)' : 'Output completed naturally'
+    reason: truncationReason
   });
   if (isTruncated) {
     shouldEscalate = true;
-    overallScore -= 50;
+    overallScore = Math.max(0, overallScore - 40);
   }
 
-  // 4. Excessive Repetition Check
-  const words = output.split(/\s+/);
-  const uniqueRatio = words.length > 30 ? new Set(words).size / words.length : 1;
-  const isRepetitive = uniqueRatio < 0.25;
+  // ─────────────────────────────────────────────
+  // 4. N-Gram & Word Repetition Check
+  // ─────────────────────────────────────────────
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  const { count: maxNgramCount, ngram } = findMaxNgramRepetition(words, REPETITION_NGRAM_SIZE);
+  const isNgramRepetitive = maxNgramCount > MAX_REPETITION_COUNT;
+
+  // Also calculate unique word ratio for general diversity
+  const uniqueRatio = words.length > 40 ? new Set(words.map(w => w.toLowerCase())).size / words.length : 1;
+  const isVocabularyDegraded = words.length > 40 && uniqueRatio < 0.20;
+
+  const repetitionFailed = isNgramRepetitive || isVocabularyDegraded;
+  let repetitionReason = 'Vocabulary diversity is healthy and non-repetitive';
+  if (isNgramRepetitive) {
+    repetitionReason = `Detected repetitive phrase loop (${maxNgramCount}x repeats of "${ngram}")`;
+  } else if (isVocabularyDegraded) {
+    repetitionReason = `Abnormally low vocabulary diversity (${Math.round(uniqueRatio * 100)}% unique words)`;
+  }
+
   checks.push({
     name: 'Repetition Check',
-    passed: !isRepetitive,
-    score: isRepetitive ? 20 : 100,
+    passed: !repetitionFailed,
+    score: repetitionFailed ? 25 : 100,
     severity: 'error',
-    reason: isRepetitive ? 'Excessive word repetition detected' : 'Word diversity is healthy'
+    reason: repetitionReason
   });
-  if (isRepetitive) {
+  if (repetitionFailed) {
     shouldEscalate = true;
-    overallScore -= 40;
+    overallScore = Math.max(0, overallScore - 40);
   }
 
-  // 5. Format Mismatch Check
+  // ─────────────────────────────────────────────
+  // 5. Format & Syntax Validation
+  // ─────────────────────────────────────────────
   let formatPassed = true;
-  let formatReason = 'Format matches requirement';
-  if (expectedFormat === 'json' && (!output.includes('{') || !output.includes('}'))) {
-    formatPassed = false;
-    formatReason = 'Expected JSON structure but missing brackets';
-  } else if (expectedFormat === 'code' && !output.includes('```')) {
-    formatPassed = false;
-    formatReason = 'Expected code blocks but none found';
+  let formatReason = `Output satisfies format requirement (${expectedFormat})`;
+  let formatScore = 100;
+
+  if (expectedFormat === 'json') {
+    // Check if JSON exists anywhere in the response
+    const jsonMatch = trimmed.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      formatPassed = false;
+      formatReason = 'Expected JSON structure, but no brackets or JSON objects were found';
+      formatScore = 20;
+    } else {
+      try {
+        JSON.parse(jsonMatch[0]);
+      } catch {
+        formatPassed = false;
+        formatReason = 'Found JSON-like block, but syntax validation failed (malformed JSON)';
+        formatScore = 40;
+      }
+    }
+  } else if (expectedFormat === 'code') {
+    const hasCodeBlock = codeFences >= 2;
+    if (!hasCodeBlock) {
+      formatPassed = false;
+      formatReason = 'Expected code output with markdown code blocks (```), none found';
+      formatScore = 40;
+    }
+  } else if (expectedFormat === 'html') {
+    const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(trimmed);
+    if (!hasHtmlTags) {
+      formatPassed = false;
+      formatReason = 'Expected HTML output with structured tags, none found';
+      formatScore = 40;
+    }
   }
+
   checks.push({
     name: 'Format Check',
     passed: formatPassed,
-    score: formatPassed ? 100 : 40,
-    severity: 'warning',
+    score: formatScore,
+    severity: formatScore <= 30 ? 'error' : 'warning',
     reason: formatReason
   });
-  if (!formatPassed) overallScore -= 30;
+  if (!formatPassed) {
+    overallScore = Math.max(0, overallScore - (100 - formatScore) * 0.4);
+    if (formatScore <= 30) shouldEscalate = true;
+  }
 
-  // 6. Length Adequacy Check
-  const isShort = expectedFormat === 'code' && output.length < 50;
+  // ─────────────────────────────────────────────
+  // 6. Completeness & Structural Adequacy
+  // ─────────────────────────────────────────────
+  const isTooBrief = (expectedFormat === 'code' || expectedFormat === 'markdown') && trimmed.length < 50;
   checks.push({
     name: 'Length Adequacy',
-    passed: !isShort,
-    score: isShort ? 50 : 100,
+    passed: !isTooBrief,
+    score: isTooBrief ? 50 : 100,
     severity: 'warning',
-    reason: isShort ? 'Output length is surprisingly short for the requested task' : 'Output length adequate'
+    reason: isTooBrief
+      ? 'Output is unusually brief for the requested task domain'
+      : 'Output length and structural depth are adequate'
   });
-  if (isShort) overallScore -= 20;
+  if (isTooBrief) {
+    overallScore = Math.max(0, overallScore - 20);
+  }
 
-  const finalScore = Math.max(0, Math.min(100, overallScore));
-  if (finalScore < 60) {
+  const finalScore = Math.max(0, Math.min(100, Math.round(overallScore)));
+  if (finalScore < QUALITY_THRESHOLD) {
     shouldEscalate = true;
   }
 
@@ -112,9 +216,11 @@ export function checkQuality(output: string, expectedFormat: string, prompt: str
 
   return {
     overallScore: finalScore,
-    passed: finalScore >= 60 && !checks.some(c => c.severity === 'error' && !c.passed),
+    passed: finalScore >= QUALITY_THRESHOLD && !checks.some(c => c.severity === 'error' && !c.passed),
     checks,
     shouldEscalate,
-    escalationReason: shouldEscalate ? failedCheck?.reason || 'Quality score below threshold' : undefined
+    escalationReason: shouldEscalate
+      ? (failedCheck?.reason || `Quality score (${finalScore}) is below threshold (${QUALITY_THRESHOLD})`)
+      : undefined
   };
 }

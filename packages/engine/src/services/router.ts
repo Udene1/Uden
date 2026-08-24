@@ -1,10 +1,19 @@
-import { getDefaultRoutingChain, RoutingPlan, ModelTier, QualityPreference, TaskDomain } from '@ai-work-partner/shared';
+import {
+  getDefaultRoutingChain,
+  RoutingPlan,
+  ModelTier,
+  QualityPreference,
+  TaskDomain,
+  estimateCost
+} from '@ai-work-partner/shared';
 
 export function routeTask(
   complexity: number,
   domain: TaskDomain,
   qualityPref: QualityPreference = 'balanced',
-  budgetLeftCents: number = 10000
+  budgetLeftCents: number = 10000,
+  estimatedInputTokens: number = 250,
+  estimatedOutputTokens: number = 500
 ): RoutingPlan {
   // Determine base tier from complexity
   let baseTier: ModelTier = complexity >= 8 ? 3 : complexity >= 4 ? 2 : 1;
@@ -18,10 +27,13 @@ export function routeTask(
   const primaryModel = chain[0] || 'gpt-4o-mini';
   const fallbackChain = chain.slice(1);
 
+  // Calculate real dynamic estimated cost using model registry pricing
+  const estimatedCostCents = estimateCost(primaryModel, estimatedInputTokens, estimatedOutputTokens);
+
   return {
     primaryModel,
     fallbackChain,
-    estimatedCostCents: baseTier === 3 ? 5 : baseTier === 2 ? 1 : 0.2,
-    reasoning: `Routed to ${primaryModel} based on complexity ${complexity}/10 (${domain} domain) and ${qualityPref} preference.`
+    estimatedCostCents,
+    reasoning: `Routed to ${primaryModel} based on complexity ${complexity}/10 (${domain} domain) and ${qualityPref} preference. Estimated token usage: ~${estimatedInputTokens} in / ~${estimatedOutputTokens} out (${estimatedCostCents}¢).`
   };
 }

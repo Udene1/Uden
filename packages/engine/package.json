@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:record": "node scripts/record_tests.mjs",
     "db:migrate:local": "wrangler d1 execute DB --local --file=src/db/schema.sql",
     "db:migrate:remote": "wrangler d1 execute DB --remote --file=src/db/schema.sql"
   },

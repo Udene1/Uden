@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkQuality } from '../src/services/quality';
 
-describe('Quality Evaluator', () => {
+describe('Quality Evaluator (Upgraded)', () => {
   it('fails empty or minimal output (<20 chars) and triggers escalation', () => {
     const report = checkQuality('Too short', 'markdown', 'Write an essay');
     expect(report.passed).toBe(false);
@@ -17,28 +17,32 @@ describe('Quality Evaluator', () => {
     expect(report.checks.find(c => c.name === 'Refusal Check')?.passed).toBe(false);
   });
 
-  it('detects unclosed code fences and truncation', () => {
+  it('detects unclosed code fences and abrupt endings', () => {
     const truncatedOutput = "Here is the code you requested:\n```typescript\nfunction example() {\n  return 42;\n";
     const report = checkQuality(truncatedOutput, 'code', 'Write a function');
     expect(report.shouldEscalate).toBe(true);
     expect(report.checks.find(c => c.name === 'Truncation Check')?.passed).toBe(false);
   });
 
-  it('detects excessive repetitive text loops', () => {
-    const repeated = ("the same phrase " .repeat(20)).trim();
-    const report = checkQuality(repeated, 'markdown', 'Write content');
+  it('detects 4-gram repetition loops using sliding n-gram analysis', () => {
+    const loopSentence = 'the system will process and store data securely ';
+    const repeated = loopSentence.repeat(6);
+    const report = checkQuality(repeated, 'markdown', 'Describe the system architecture');
     expect(report.shouldEscalate).toBe(true);
-    expect(report.checks.find(c => c.name === 'Repetition Check')?.passed).toBe(false);
+    const repetitionCheck = report.checks.find(c => c.name === 'Repetition Check');
+    expect(repetitionCheck?.passed).toBe(false);
+    expect(repetitionCheck?.reason).toContain('repetitive phrase loop');
   });
 
-  it('validates JSON structure when json format is expected', () => {
-    const validJsonOutput = '{\n  "status": "success",\n  "data": [1, 2, 3]\n}';
-    const report = checkQuality(validJsonOutput, 'json', 'Provide JSON data');
-    expect(report.checks.find(c => c.name === 'Format Check')?.passed).toBe(true);
+  it('validates syntax and structure when json format is expected', () => {
+    const validJsonOutput = 'Here is the requested data:\n{\n  "status": "success",\n  "count": 42\n}';
+    const validReport = checkQuality(validJsonOutput, 'json', 'Provide JSON data');
+    expect(validReport.checks.find(c => c.name === 'Format Check')?.passed).toBe(true);
 
-    const invalidJsonOutput = 'Here is the response without any brackets or braces';
-    const failedReport = checkQuality(invalidJsonOutput, 'json', 'Provide JSON data');
-    expect(failedReport.checks.find(c => c.name === 'Format Check')?.passed).toBe(false);
+    const malformedJsonOutput = '{\n  "status": "invalid json without closing quote\n}';
+    const malformedReport = checkQuality(malformedJsonOutput, 'json', 'Provide JSON data');
+    expect(malformedReport.checks.find(c => c.name === 'Format Check')?.passed).toBe(false);
+    expect(malformedReport.checks.find(c => c.name === 'Format Check')?.reason).toContain('syntax validation failed');
   });
 
   it('passes comprehensive, well-structured output without escalation', () => {

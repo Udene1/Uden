@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HonoEnv } from '../types';
 import { executeTask, runTaskExecution } from '../services/executor';
+import { createTaskGraph, decomposeTask } from '../services/task-graph';
 import { listTasks, getTask, updateTask } from '../db/queries';
 
 export const taskRoutes = new Hono<HonoEnv>();
@@ -23,6 +24,24 @@ taskRoutes.post('/', async (c) => {
     }
     return c.json({ error: err.message || 'Internal server error' }, 500);
   }
+});
+
+/**
+ * Preview the work graph without spending model credits or mutating task state.
+ * This gives the dashboard/client a safe way to inspect decomposition before
+ * graph execution is wired into the executor.
+ */
+taskRoutes.post('/plan', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+
+  if (!body.prompt || typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
+    return c.json({ error: 'Prompt is required and must be a non-empty string' }, 400);
+  }
+
+  const plan = decomposeTask(body.prompt.trim());
+  const graph = createTaskGraph(crypto.randomUUID(), plan);
+
+  return c.json({ plan, graph }, 200);
 });
 
 taskRoutes.get('/', async (c) => {

@@ -14,6 +14,8 @@ export type TaskNodeStatus =
   | 'blocked'
   | 'awaiting-approval';
 
+export type ApprovalState = 'not-required' | 'pending' | 'approved' | 'rejected';
+
 export interface TaskNode {
   id: string;
   title: string;
@@ -33,6 +35,11 @@ export interface TaskNode {
   tokensIn?: number;
   tokensOut?: number;
   error?: string;
+  approvalRequired?: boolean;
+  approvalState?: ApprovalState;
+  approvalReason?: string;
+  approvedBy?: string;
+  approvedAt?: string;
 }
 
 export interface TaskGraph {

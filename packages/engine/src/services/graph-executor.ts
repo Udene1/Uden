@@ -18,7 +18,7 @@ export interface GraphExecutionResult {
   executionOrder: string[];
 }
 
-function validatePlan(plan: TaskGraphPlan): void {
+export function validateTaskGraphPlan(plan: TaskGraphPlan): void {
   const ids = new Set<string>();
   for (const node of plan.nodes) {
     if (ids.has(node.id)) throw new Error(`Invalid graph: duplicate node id '${node.id}'`);
@@ -54,7 +54,7 @@ function validatePlan(plan: TaskGraphPlan): void {
   if (resolved !== plan.nodes.length) throw new Error('Invalid graph: graph could not be fully resolved');
 }
 
-function buildNodePrompt(node: TaskNode, graph: TaskGraph): string {
+export function buildGraphNodePrompt(node: TaskNode, graph: TaskGraph): string {
   const upstream = node.contextFrom
     .map((id) => graph.nodes.find((candidate) => candidate.id === id))
     .filter((candidate): candidate is TaskNode => Boolean(candidate?.output))
@@ -89,7 +89,7 @@ async function executeNode(
   node.attemptedModels.push(decision.primaryModel);
   setNodeStatus(node, 'running');
 
-  const prompt = buildNodePrompt(node, graph);
+  const prompt = buildGraphNodePrompt(node, graph);
 
   if (!(await checkBudget(env, tenantId))) {
     node.error = 'Budget exceeded before node execution';
@@ -218,7 +218,7 @@ export async function executeTaskGraph(
   plan: TaskGraphPlan,
   projectId?: string
 ): Promise<GraphExecutionResult> {
-  validatePlan(plan);
+  validateTaskGraphPlan(plan);
   if (plan.nodes.length === 0) throw new Error('Invalid graph: at least one node is required');
 
   const tenant = await getTenantById(env.DB, tenantId);
@@ -279,7 +279,7 @@ export async function executeTaskGraph(
 
     if (ready.length === 0) break;
 
-    // Sequential waves keep budget accounting deterministic until atomic budget reservation exists.
+    // Sequential execution keeps budget accounting deterministic until atomic reservation exists.
     for (const node of ready) {
       await executeNode(env, graph, node, tenantId, qualityPreference, budgetLeft);
       executionOrder.push(node.id);

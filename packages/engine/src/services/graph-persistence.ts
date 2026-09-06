@@ -19,160 +19,67 @@ export type GraphAttemptRecord = {
   completedAt?: string;
 };
 
-export type GraphExecutionLease = {
-  owner: string;
-  leaseSeconds?: number;
-};
+export type GraphExecutionLease = { owner: string; leaseSeconds?: number };
 
 const parse = <T>(value: unknown, fallback: T): T => {
-  try {
-    return value == null ? fallback : JSON.parse(String(value));
-  } catch {
-    return fallback;
-  }
+  try { return value == null ? fallback : JSON.parse(String(value)); } catch { return fallback; }
 };
 
-export async function persistGraph(
-  db: D1Database,
-  tenantId: string,
-  graph: TaskGraph,
-  projectId?: string,
-  lease?: GraphExecutionLease,
-): Promise<void> {
+export async function persistGraph(db: D1Database, tenantId: string, graph: TaskGraph, projectId?: string, lease?: GraphExecutionLease): Promise<void> {
   const owner = lease?.owner || null;
   const leaseSeconds = lease?.leaseSeconds || 120;
   await db.prepare(`
-    INSERT INTO task_graphs (
-      id, tenant_id, root_task_id, project_id, goal, status, execution_version,
-      execution_owner, lease_until, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now', '+' || ? || ' seconds'), ?, CURRENT_TIMESTAMP)
-  `).bind(
-    graph.id,
-    tenantId,
-    graph.rootTaskId,
-    projectId || null,
-    graph.goal,
-    'running',
-    owner,
-    leaseSeconds,
-    graph.createdAt,
-  ).run();
-
-  for (const node of graph.nodes) {
-    await persistGraphNode(db, tenantId, graph.id, node);
-  }
+    INSERT INTO task_graphs (id, tenant_id, root_task_id, project_id, goal, status, execution_version, execution_owner, lease_until, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?, datetime('now', '+' || ? || ' seconds'), ?, CURRENT_TIMESTAMP)
+  `).bind(graph.id, tenantId, graph.rootTaskId, projectId || null, graph.goal, 'running', owner, leaseSeconds, graph.createdAt).run();
+  for (const node of graph.nodes) await persistGraphNode(db, tenantId, graph.id, node);
 }
 
-export async function persistGraphNode(
-  db: D1Database,
-  tenantId: string,
-  graphId: string,
-  node: TaskNode,
-): Promise<void> {
+export async function persistGraphNode(db: D1Database, tenantId: string, graphId: string, node: TaskNode): Promise<void> {
   await db.prepare(`
     INSERT INTO task_graph_nodes (
-      id, graph_id, tenant_id, title, prompt, domain, complexity, expected_format,
-      recommended_tier, dependencies_json, context_from_json, status, selected_model,
-      attempted_models_json, output, quality_score, cost_cents, tokens_in, tokens_out,
-      error, created_at, started_at, completed_at, updated_at
+      id, graph_id, tenant_id, title, prompt, domain, complexity, expected_format, recommended_tier,
+      dependencies_json, context_from_json, status, selected_model, attempted_models_json, output,
+      quality_score, cost_cents, tokens_in, tokens_out, error, created_at, started_at, completed_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(graph_id, id) DO UPDATE SET
-      title=excluded.title,
-      prompt=excluded.prompt,
-      domain=excluded.domain,
-      complexity=excluded.complexity,
-      expected_format=excluded.expected_format,
-      recommended_tier=excluded.recommended_tier,
-      dependencies_json=excluded.dependencies_json,
-      context_from_json=excluded.context_from_json,
-      status=excluded.status,
-      selected_model=excluded.selected_model,
-      attempted_models_json=excluded.attempted_models_json,
-      output=excluded.output,
-      quality_score=excluded.quality_score,
-      cost_cents=excluded.cost_cents,
-      tokens_in=excluded.tokens_in,
-      tokens_out=excluded.tokens_out,
-      error=excluded.error,
+      title=excluded.title, prompt=excluded.prompt, domain=excluded.domain, complexity=excluded.complexity,
+      expected_format=excluded.expected_format, recommended_tier=excluded.recommended_tier,
+      dependencies_json=excluded.dependencies_json, context_from_json=excluded.context_from_json,
+      status=excluded.status, selected_model=excluded.selected_model, attempted_models_json=excluded.attempted_models_json,
+      output=excluded.output, quality_score=excluded.quality_score, cost_cents=excluded.cost_cents,
+      tokens_in=excluded.tokens_in, tokens_out=excluded.tokens_out, error=excluded.error,
       started_at=COALESCE(excluded.started_at, task_graph_nodes.started_at),
-      completed_at=COALESCE(excluded.completed_at, task_graph_nodes.completed_at),
-      updated_at=CURRENT_TIMESTAMP
+      completed_at=COALESCE(excluded.completed_at, task_graph_nodes.completed_at), updated_at=CURRENT_TIMESTAMP
   `).bind(
-    node.id,
-    graphId,
-    tenantId,
-    node.title,
-    node.prompt,
-    node.domain,
-    node.complexity,
-    node.expectedFormat,
-    node.recommendedTier,
-    JSON.stringify(node.dependencies),
-    JSON.stringify(node.contextFrom),
-    node.status,
-    node.selectedModel || null,
-    JSON.stringify(node.attemptedModels || []),
-    node.output || null,
-    node.qualityScore ?? null,
-    node.costCents || 0,
-    node.tokensIn || 0,
-    node.tokensOut || 0,
-    node.error || null,
+    node.id, graphId, tenantId, node.title, node.prompt, node.domain, node.complexity, node.expectedFormat,
+    node.recommendedTier, JSON.stringify(node.dependencies), JSON.stringify(node.contextFrom), node.status,
+    node.selectedModel || null, JSON.stringify(node.attemptedModels || []), node.output || null,
+    node.qualityScore ?? null, node.costCents || 0, node.tokensIn || 0, node.tokensOut || 0, node.error || null,
     node.status === 'running' ? new Date().toISOString() : null,
     node.status === 'completed' ? new Date().toISOString() : null,
   ).run();
 }
 
-export async function persistGraphSnapshot(
-  db: D1Database,
-  tenantId: string,
-  graph: TaskGraph,
-  status: string,
-  activeNodeId?: string | null,
-  lastError?: string | null,
-  lease?: GraphExecutionLease,
-): Promise<void> {
-  for (const node of graph.nodes) {
-    await persistGraphNode(db, tenantId, graph.id, node);
-  }
-
+export async function persistGraphSnapshot(db: D1Database, tenantId: string, graph: TaskGraph, status: string, activeNodeId?: string | null, lastError?: string | null, lease?: GraphExecutionLease): Promise<void> {
+  for (const node of graph.nodes) await persistGraphNode(db, tenantId, graph.id, node);
   const terminal = ['completed', 'failed', 'blocked'].includes(status);
   const owner = lease?.owner || null;
   const leaseSeconds = lease?.leaseSeconds || 120;
   await db.prepare(`
-    UPDATE task_graphs
-    SET status=?, active_node_id=?, last_error=?,
-        started_at=COALESCE(started_at,CURRENT_TIMESTAMP),
-        completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,
-        execution_owner=CASE WHEN ? THEN NULL ELSE execution_owner END,
-        lease_until=CASE WHEN ? THEN NULL ELSE datetime('now', '+' || ? || ' seconds') END,
-        execution_version=execution_version+1,
-        updated_at=CURRENT_TIMESTAMP
+    UPDATE task_graphs SET status=?, active_node_id=?, last_error=?,
+      started_at=COALESCE(started_at,CURRENT_TIMESTAMP),
+      completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,
+      execution_owner=CASE WHEN ? THEN NULL ELSE execution_owner END,
+      lease_until=CASE WHEN ? THEN NULL ELSE datetime('now', '+' || ? || ' seconds') END,
+      execution_version=execution_version+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=? AND tenant_id=? AND (execution_owner IS NULL OR execution_owner=? OR lease_until < CURRENT_TIMESTAMP)
-  `).bind(
-    status,
-    activeNodeId || null,
-    lastError || null,
-    terminal ? 1 : 0,
-    terminal ? 1 : 0,
-    terminal ? 1 : 0,
-    leaseSeconds,
-    graph.id,
-    tenantId,
-    owner,
-  ).run();
+  `).bind(status, activeNodeId || null, lastError || null, terminal ? 1 : 0, terminal ? 1 : 0, terminal ? 1 : 0, leaseSeconds, graph.id, tenantId, owner).run();
 }
 
-export async function acquireGraphExecutionLease(
-  db: D1Database,
-  tenantId: string,
-  graphId: string,
-  owner: string,
-  leaseSeconds = 120,
-): Promise<boolean> {
+export async function acquireGraphExecutionLease(db: D1Database, tenantId: string, graphId: string, owner: string, leaseSeconds = 120): Promise<boolean> {
   const result = await db.prepare(`
-    UPDATE task_graphs
-    SET execution_owner=?, lease_until=datetime('now', '+' || ? || ' seconds'), updated_at=CURRENT_TIMESTAMP
+    UPDATE task_graphs SET execution_owner=?, lease_until=datetime('now', '+' || ? || ' seconds'), updated_at=CURRENT_TIMESTAMP
     WHERE id=? AND tenant_id=? AND (execution_owner IS NULL OR execution_owner=? OR lease_until < CURRENT_TIMESTAMP)
   `).bind(owner, leaseSeconds, graphId, tenantId, owner).run();
   return Boolean(result.meta?.changes);
@@ -182,39 +89,34 @@ export async function recordGraphAttempt(db: D1Database, attempt: GraphAttemptRe
   await db.prepare(`
     INSERT INTO task_graph_attempts (
       id, graph_id, node_id, tenant_id, attempt_number, model, provider, status,
-      prompt_tokens, completion_tokens, cost_cents, quality_score, escalation_reason,
-      error, started_at, completed_at
+      prompt_tokens, completion_tokens, cost_cents, quality_score, escalation_reason, error, started_at, completed_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(graph_id, node_id, attempt_number) DO UPDATE SET
-      status=excluded.status,
-      model=excluded.model,
-      provider=excluded.provider,
-      prompt_tokens=excluded.prompt_tokens,
-      completion_tokens=excluded.completion_tokens,
-      cost_cents=excluded.cost_cents,
-      quality_score=excluded.quality_score,
-      escalation_reason=excluded.escalation_reason,
-      error=excluded.error,
-      started_at=COALESCE(task_graph_attempts.started_at, excluded.started_at),
-      completed_at=excluded.completed_at
+      status=excluded.status, model=excluded.model, provider=excluded.provider,
+      prompt_tokens=excluded.prompt_tokens, completion_tokens=excluded.completion_tokens,
+      cost_cents=excluded.cost_cents, quality_score=excluded.quality_score,
+      escalation_reason=excluded.escalation_reason, error=excluded.error,
+      started_at=COALESCE(task_graph_attempts.started_at, excluded.started_at), completed_at=excluded.completed_at
   `).bind(
-    attempt.id,
-    attempt.graphId,
-    attempt.nodeId,
-    attempt.tenantId,
-    attempt.attemptNumber,
-    attempt.model,
-    attempt.provider || null,
-    attempt.status,
-    attempt.promptTokens || 0,
-    attempt.completionTokens || 0,
-    attempt.costCents || 0,
-    attempt.qualityScore ?? null,
-    attempt.escalationReason || null,
-    attempt.error || null,
-    attempt.startedAt || new Date().toISOString(),
-    attempt.completedAt || null,
+    attempt.id, attempt.graphId, attempt.nodeId, attempt.tenantId, attempt.attemptNumber, attempt.model,
+    attempt.provider || null, attempt.status, attempt.promptTokens || 0, attempt.completionTokens || 0,
+    attempt.costCents || 0, attempt.qualityScore ?? null, attempt.escalationReason || null, attempt.error || null,
+    attempt.startedAt || new Date().toISOString(), attempt.completedAt || null,
   ).run();
+
+  // Graph usage is keyed by the durable attempt identity. Replaying the same attempt therefore cannot double-bill it.
+  if (attempt.status === 'completed' && (attempt.costCents || 0) > 0) {
+    const graph = await db.prepare(`SELECT root_task_id FROM task_graphs WHERE id=? AND tenant_id=?`).bind(attempt.graphId, attempt.tenantId).first<{ root_task_id: string }>();
+    if (graph?.root_task_id) {
+      await db.prepare(`
+        INSERT OR IGNORE INTO usage_records (id, tenant_id, task_id, model, provider, tokens_in, tokens_out, cost_cents)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        attempt.id, attempt.tenantId, graph.root_task_id, attempt.model, attempt.provider || 'unknown',
+        attempt.promptTokens || 0, attempt.completionTokens || 0, attempt.costCents || 0,
+      ).run();
+    }
+  }
 }
 
 export async function getPersistedGraph(db: D1Database, tenantId: string, graphId: string): Promise<TaskGraph | null> {
@@ -222,30 +124,16 @@ export async function getPersistedGraph(db: D1Database, tenantId: string, graphI
   if (!graph) return null;
   const rows = await db.prepare(`SELECT * FROM task_graph_nodes WHERE graph_id=? AND tenant_id=? ORDER BY created_at,id`).bind(graphId, tenantId).all<any>();
   return {
-    id: graph.id,
-    rootTaskId: graph.root_task_id,
-    goal: graph.goal,
-    createdAt: graph.created_at,
+    id: graph.id, rootTaskId: graph.root_task_id, goal: graph.goal, createdAt: graph.created_at,
     completedAt: graph.completed_at || undefined,
     nodes: (rows.results || []).map((node: any) => ({
-      id: node.id,
-      title: node.title,
-      prompt: node.prompt,
-      domain: node.domain,
-      complexity: node.complexity,
-      expectedFormat: node.expected_format,
-      recommendedTier: node.recommended_tier,
-      dependencies: parse(node.dependencies_json, []),
-      contextFrom: parse(node.context_from_json, []),
-      status: node.status as TaskNodeStatus,
-      attemptedModels: parse(node.attempted_models_json, []),
-      selectedModel: node.selected_model || undefined,
-      output: node.output || undefined,
-      qualityScore: node.quality_score ?? undefined,
-      costCents: node.cost_cents ?? 0,
-      tokensIn: node.tokens_in ?? 0,
-      tokensOut: node.tokens_out ?? 0,
-      error: node.error || undefined,
+      id: node.id, title: node.title, prompt: node.prompt, domain: node.domain, complexity: node.complexity,
+      expectedFormat: node.expected_format, recommendedTier: node.recommended_tier,
+      dependencies: parse(node.dependencies_json, []), contextFrom: parse(node.context_from_json, []),
+      status: node.status as TaskNodeStatus, attemptedModels: parse(node.attempted_models_json, []),
+      selectedModel: node.selected_model || undefined, output: node.output || undefined,
+      qualityScore: node.quality_score ?? undefined, costCents: node.cost_cents ?? 0,
+      tokensIn: node.tokens_in ?? 0, tokensOut: node.tokens_out ?? 0, error: node.error || undefined,
     })),
   };
 }
@@ -253,7 +141,7 @@ export async function getPersistedGraph(db: D1Database, tenantId: string, graphI
 export async function listPersistedGraphs(db: D1Database, tenantId: string, limit=50, offset=0) {
   const result = await db.prepare(`
     SELECT id, root_task_id, project_id, goal, status, execution_version, active_node_id,
-           last_error, execution_owner, lease_until, created_at, started_at, completed_at, updated_at
+      last_error, execution_owner, lease_until, created_at, started_at, completed_at, updated_at
     FROM task_graphs WHERE tenant_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?
   `).bind(tenantId, limit, offset).all<any>();
   return result.results || [];

@@ -1,0 +1,3 @@
+export async function getGraphs(){const r=await fetch('/api/backend/tasks/graphs');if(!r.ok)throw new Error(`Graph API error: ${r.status}`);return r.json() as Promise<{graphs:any[]}>;}
+export async function getGraph(id:string){const r=await fetch(`/api/backend/tasks/graph/${encodeURIComponent(id)}`);if(!r.ok)throw new Error(`Graph API error: ${r.status}`);return r.json() as Promise<{graph:any}>;}
+export async function getGraphAttempts(id:string,nodeId?:string){const q=nodeId?`?nodeId=${encodeURIComponent(nodeId)}`:'';const r=await fetch(`/api/backend/tasks/graph/${encodeURIComponent(id)}/attempts${q}`);if(!r.ok)throw new Error(`Graph API error: ${r.status}`);return r.json() as Promise<{attempts:any[]}>;}

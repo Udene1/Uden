@@ -2,15 +2,22 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
 import type { D1Database } from '@cloudflare/workers-types';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { reserveBudget, releaseBudget, getBudgetState } from './cost';
 import { blockDependents, getReadyGraphNodes, resumeTaskGraph } from './graph-executor';
 import { persistGraph, getPersistedGraph } from './graph-persistence';
 import type { TaskGraph } from '@ai-work-partner/shared';
 
+const testDir = dirname(fileURLToPath(import.meta.url));
+const engineRoot = resolve(testDir, '../..');
+const schemaPath = resolve(testDir, '../db/schema.sql');
+const migrationPath = (name: string) => resolve(engineRoot, 'migrations', name);
+
 const execSqlFile = async (db: D1Database, path: string) => {
   const sql = await readFile(path, 'utf8');
   const statements = sql
+    .replace(/^\uFEFF/, '')
     .replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '')
     .split(';')
     .map(statement => statement.trim())
@@ -27,13 +34,13 @@ describe('graph reliability D1 integration', () => {
   const env = {} as any;
 
   beforeAll(async () => {
-    const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'wrangler.jsonc'), persist: false });
+    const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.jsonc'), persist: false });
     db = platform.env.DB as D1Database;
     env.DB = db;
     dispose = platform.dispose;
-    await execSqlFile(db, resolve(process.cwd(), 'src/db/schema.sql'));
-    await execSqlFile(db, resolve(process.cwd(), 'migrations/0003_graph_durable_execution.sql'));
-    await execSqlFile(db, resolve(process.cwd(), 'migrations/0004_budget_reservations.sql'));
+    await execSqlFile(db, schemaPath);
+    await execSqlFile(db, migrationPath('0003_graph_durable_execution.sql'));
+    await execSqlFile(db, migrationPath('0004_budget_reservations.sql'));
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant','Reliability','r@example.test','reliability-hash',10).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','recovery test','processing').run();
   });

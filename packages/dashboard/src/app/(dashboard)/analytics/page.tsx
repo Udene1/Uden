@@ -1,89 +1,28 @@
 'use client';
-import { Calendar, Download, BarChart2, PieChart } from 'lucide-react';
-import SpendChart from '@/components/charts/SpendChart';
-import ModelDistribution from '@/components/charts/ModelDistribution';
-import CostByProvider from '@/components/charts/CostByProvider';
+import { useEffect,useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { api,AnalyticsResponse } from '@/lib/api';
+import { formatCurrency,formatNumber } from '@/lib/utils';
+import { BarChart2,Activity,Route,ShieldAlert } from 'lucide-react';
 
-export default function AnalyticsPage() {
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-[var(--text-primary)]">Analytics & Reports</h2>
-        
-        <div className="flex gap-3">
-          <div className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg border border-[var(--border-color)] text-sm text-[var(--text-secondary)]">
-            <Calendar size={16} />
-            <span>Last 30 Days</span>
-          </div>
-          <button className="btn btn-secondary">
-            <Download size={16} /> Export CSV
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-card p-6 border border-[var(--border-color)]">
-          <div className="flex items-center gap-2 mb-6">
-            <BarChart2 size={20} className="text-[var(--accent-primary)]" />
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Spend Over Time</h3>
-          </div>
-          <SpendChart />
-        </div>
-
-        <div className="glass-card p-6 border border-[var(--border-color)]">
-          <div className="flex items-center gap-2 mb-6">
-            <PieChart size={20} className="text-purple-500" />
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Cost by Provider</h3>
-          </div>
-          <CostByProvider />
-        </div>
-
-        <div className="glass-card p-6 border border-[var(--border-color)]">
-          <div className="flex items-center gap-2 mb-6">
-            <PieChart size={20} className="text-green-500" />
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Task Distribution by Model</h3>
-          </div>
-          <ModelDistribution />
-        </div>
-
-        <div className="glass-card p-6 border border-[var(--border-color)] flex flex-col justify-center items-center text-center">
-          <div className="w-16 h-16 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center mb-4">
-            <span className="text-2xl">⚡</span>
-          </div>
-          <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">Escalation Funnel</h3>
-          <p className="text-[var(--text-secondary)] text-sm max-w-xs">
-            Visualization of tasks routed to fast models vs escalated to premium models.
-          </p>
-          <div className="mt-8 w-full max-w-sm space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-[var(--text-primary)]">Total Tasks</span>
-              <span className="font-mono">10,420</span>
-            </div>
-            <div className="w-full bg-[var(--bg-secondary)] h-8 rounded flex items-center px-3 relative overflow-hidden">
-               <div className="absolute left-0 top-0 bottom-0 bg-blue-500/20 w-full"></div>
-               <span className="relative z-10 text-xs font-medium">100% Routed</span>
-            </div>
-            
-            <div className="flex justify-between text-sm pt-2">
-              <span className="text-[var(--text-primary)]">Fast Model Success</span>
-              <span className="font-mono">8,950</span>
-            </div>
-            <div className="w-full bg-[var(--bg-secondary)] h-8 rounded flex items-center px-3 relative overflow-hidden">
-               <div className="absolute left-0 top-0 bottom-0 bg-green-500/20 w-[85%]"></div>
-               <span className="relative z-10 text-xs font-medium">85% Resolved</span>
-            </div>
-
-            <div className="flex justify-between text-sm pt-2">
-              <span className="text-[var(--text-primary)]">Escalated to Premium</span>
-              <span className="font-mono">1,470</span>
-            </div>
-            <div className="w-full bg-[var(--bg-secondary)] h-8 rounded flex items-center px-3 relative overflow-hidden">
-               <div className="absolute left-0 top-0 bottom-0 bg-purple-500/20 w-[15%]"></div>
-               <span className="relative z-10 text-xs font-medium">15% Escalated</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+export default function AnalyticsPage(){
+ const {data:session}=useSession(); const apiKey=(session as any)?.apiKey; const [data,setData]=useState<AnalyticsResponse|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState<string|null>(null);
+ useEffect(()=>{if(!apiKey)return;api.getAnalytics(apiKey).then(setData).catch(e=>setError(e instanceof Error?e.message:'Failed to load analytics')).finally(()=>setLoading(false));},[apiKey]);
+ if(loading)return <div className="glass-card p-8">Loading analytics…</div>;
+ if(error)return <div className="glass-card p-6 border border-red-500/30 text-red-300">{error}</div>;
+ if(!data)return null; const {analytics,savings}=data;
+ return <div className="space-y-6">
+  <div><h2 className="text-2xl font-bold text-[var(--text-primary)]">Analytics & Reports</h2><p className="text-sm text-[var(--text-secondary)] mt-1">Live tenant-scoped execution, routing and quality data.</p></div>
+  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4"><Metric title="Graphs" value={formatNumber(analytics.totals.graphs)}/><Metric title="Completed" value={formatNumber(analytics.totals.completed)}/><Metric title="Failed" value={formatNumber(analytics.totals.failed)}/><Metric title="Escalation Attempts" value={formatNumber(analytics.totals.escalationAttempts)}/></div>
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+   <Panel icon={<Route size={18}/>} title="Routing economics"><div className="space-y-3 text-sm"><Row label="Actual cost" value={formatCurrency(savings.actualCostCents)}/><Row label="Primary-attempt cost" value={formatCurrency(savings.primaryAttemptCostCents)}/><Row label="Escalation cost" value={formatCurrency(savings.escalationCostCents)}/><Row label="Measured routing savings" value={formatCurrency(savings.routingSavingsCents)}/></div></Panel>
+   <Panel icon={<ShieldAlert size={18}/>} title="Quality by domain"><div className="space-y-2">{analytics.byDomain.length?analytics.byDomain.map(x=><div key={x.domain} className="flex justify-between text-sm"><span>{x.domain}</span><span>{x.avgQuality.toFixed(1)} quality · {formatCurrency(x.costCents)}</span></div>):<Empty/>}</div></Panel>
+   <Panel icon={<BarChart2 size={18}/>} title="Model performance"><div className="space-y-2">{analytics.byModel.length?analytics.byModel.map(x=><div key={x.model} className="grid grid-cols-[1fr_auto_auto] gap-4 text-sm"><span className="font-mono">{x.model}</span><span>{x.attempts} attempts</span><span>{formatCurrency(x.costCents)}</span></div>):<Empty/>}</div></Panel>
+   <Panel icon={<Activity size={18}/>} title="Recent graphs"><div className="space-y-3">{analytics.recentGraphs.length?analytics.recentGraphs.map(x=><div key={x.id} className="border-b border-[var(--border-color)] pb-2"><div className="flex justify-between gap-3"><span className="truncate">{x.goal}</span><span className="text-xs">{x.status}</span></div><div className="text-xs text-[var(--text-secondary)] mt-1">{x.nodes} nodes · {formatCurrency(x.costCents)} · quality {x.avgQuality.toFixed(1)}</div></div>):<Empty/>}</div></Panel>
+  </div>
+ </div>;
 }
+function Metric({title,value}:{title:string;value:string}){return <div className="glass-card p-5"><div className="text-sm text-[var(--text-secondary)]">{title}</div><div className="text-2xl font-bold mt-2">{value}</div></div>}
+function Panel({icon,title,children}:{icon:React.ReactNode;title:string;children:React.ReactNode}){return <div className="glass-card p-6"><div className="flex items-center gap-2 mb-5"><span className="text-[var(--accent-primary)]">{icon}</span><h3 className="text-lg font-semibold">{title}</h3></div>{children}</div>}
+function Row({label,value}:{label:string;value:string}){return <div className="flex justify-between"><span className="text-[var(--text-secondary)]">{label}</span><span>{value}</span></div>}
+function Empty(){return <div className="text-sm text-[var(--text-secondary)]">No execution data yet.</div>}

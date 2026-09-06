@@ -23,3 +23,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_created ON audit_logs(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(tenant_id, resource_type, resource_id);
+
+ALTER TABLE task_graph_nodes ADD COLUMN approval_state TEXT NOT NULL DEFAULT 'not-required' CHECK(approval_state IN ('not-required','pending','approved','rejected'));
+ALTER TABLE task_graph_nodes ADD COLUMN approval_reason TEXT;
+ALTER TABLE task_graph_nodes ADD COLUMN approved_by TEXT;
+ALTER TABLE task_graph_nodes ADD COLUMN approved_at DATETIME;
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_approval ON task_graph_nodes(tenant_id, approval_state);

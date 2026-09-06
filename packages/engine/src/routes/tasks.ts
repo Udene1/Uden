@@ -27,9 +27,7 @@ taskRoutes.post('/', async (c) => {
   }
 });
 
-/**
- * Preview the work graph without spending model credits or mutating task state.
- */
+/** Preview the work graph without spending model credits or mutating task state. */
 taskRoutes.post('/plan', async (c) => {
   const body = await c.req.json().catch(() => ({}));
 
@@ -65,7 +63,7 @@ taskRoutes.post('/graph/execute', async (c) => {
     }
 
     const result = await executeTaskGraph(c.env, tenantId, plan, body.projectId);
-    return c.json(result, result.status === 'completed' ? 200 : 207);
+    return c.json(result, 200);
   } catch (err: any) {
     if (err.message === 'Budget exceeded') return c.json({ error: err.message }, 402);
     if (String(err.message).startsWith('Invalid graph:')) {

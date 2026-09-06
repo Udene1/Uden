@@ -4,6 +4,13 @@ import { checkQuality } from './quality';
 import { getProvider } from './providers';
 import { routeGraphNode } from './graph-router';
 import { createEscalationLog, createTask, getMonthlySpend, getTenantById, updateTask } from '../db/queries';
+import {
+  persistGraph,
+  persistGraphSnapshot,
+  recordGraphAttempt,
+  acquireGraphExecutionLease,
+  getPersistedGraph,
+} from './graph-persistence';
 import { classifyTask } from './classifier';
 import type { Task, TaskGraph, TaskGraphPlan, TaskNode, TaskNodeStatus } from '@ai-work-partner/shared';
 import { MAX_ESCALATION_ATTEMPTS } from '@ai-work-partner/shared';
@@ -36,7 +43,6 @@ export function validateTaskGraphPlan(plan: TaskGraphPlan): void {
     }
   }
 
-  // Kahn-style cycle detection without mutating the supplied plan.
   const remaining = new Map(plan.nodes.map((node) => [node.id, new Set(node.dependencies)]));
   let resolved = 0;
   while (remaining.size > 0) {
@@ -72,13 +78,22 @@ function setNodeStatus(node: TaskNode, status: TaskNodeStatus): void {
   node.status = status;
 }
 
+function providerName(modelId: string): string {
+  if (modelId.startsWith('gpt') || modelId.startsWith('o3')) return 'openai';
+  if (modelId.startsWith('claude')) return 'anthropic';
+  if (modelId.startsWith('gemini')) return 'google';
+  if (modelId.startsWith('deepseek')) return 'deepseek';
+  return 'unknown';
+}
+
 async function executeNode(
   env: HonoEnv['Bindings'],
   graph: TaskGraph,
   node: TaskNode,
   tenantId: string,
   qualityPreference: 'cost-optimized' | 'balanced' | 'quality-first',
-  budgetLeftCents: () => Promise<number>
+  budgetLeftCents: () => Promise<number>,
+  persist: (status?: string, error?: string) => Promise<void>,
 ): Promise<void> {
   const decision = routeGraphNode(node, {
     qualityPreference,
@@ -86,16 +101,44 @@ async function executeNode(
   });
 
   node.selectedModel = decision.primaryModel;
-  node.attemptedModels.push(decision.primaryModel);
   setNodeStatus(node, 'running');
+  await persist('running');
 
   const prompt = buildGraphNodePrompt(node, graph);
 
   if (!(await checkBudget(env, tenantId))) {
     node.error = 'Budget exceeded before node execution';
     setNodeStatus(node, 'failed');
+    await recordGraphAttempt(env.DB, {
+      id: crypto.randomUUID(),
+      graphId: graph.id,
+      nodeId: node.id,
+      tenantId,
+      attemptNumber: node.attemptedModels.length + 1,
+      model: decision.primaryModel,
+      provider: providerName(decision.primaryModel),
+      status: 'failed',
+      error: node.error,
+    });
+    await persist('failed', node.error);
     return;
   }
+
+  const primaryAttemptNumber = 1;
+  node.attemptedModels.push(decision.primaryModel);
+  const primaryStartedAt = new Date().toISOString();
+  await recordGraphAttempt(env.DB, {
+    id: crypto.randomUUID(),
+    graphId: graph.id,
+    nodeId: node.id,
+    tenantId,
+    attemptNumber: primaryAttemptNumber,
+    model: decision.primaryModel,
+    provider: providerName(decision.primaryModel),
+    status: 'running',
+    startedAt: primaryStartedAt,
+  });
+  await persist('running');
 
   try {
     const provider = getProvider(env, decision.primaryModel);
@@ -117,6 +160,24 @@ async function executeNode(
     let finalOutput = response.result;
     let finalModel = decision.primaryModel;
 
+    await recordGraphAttempt(env.DB, {
+      id: crypto.randomUUID(),
+      graphId: graph.id,
+      nodeId: node.id,
+      tenantId,
+      attemptNumber: primaryAttemptNumber,
+      model: decision.primaryModel,
+      provider: providerName(decision.primaryModel),
+      status: 'completed',
+      promptTokens: response.promptTokens,
+      completionTokens: response.completionTokens,
+      costCents: primaryCost,
+      qualityScore: quality.overallScore,
+      startedAt: primaryStartedAt,
+      completedAt: new Date().toISOString(),
+    });
+    await persist('running');
+
     if (quality.shouldEscalate && decision.fallbackChain.length > 0) {
       const models = decision.fallbackChain.slice(0, MAX_ESCALATION_ATTEMPTS);
       let previousModel = decision.primaryModel;
@@ -125,20 +186,37 @@ async function executeNode(
         if (!(await checkBudget(env, tenantId))) break;
 
         const modelId = models[index];
+        const attemptNumber = index + 2;
+        const escalationReason =
+          quality.escalationReason ||
+          quality.checks.filter((check) => !check.passed).map((check) => check.reason).join('; ') ||
+          'Quality threshold failed';
         node.attemptedModels.push(modelId);
         await createEscalationLog(env.DB, {
           id: crypto.randomUUID(),
           taskId: graph.rootTaskId,
           fromModel: previousModel,
           toModel: modelId,
-          reason:
-            quality.escalationReason ||
-            quality.checks.filter((check) => !check.passed).map((check) => check.reason).join('; ') ||
-            'Quality threshold failed',
+          reason: escalationReason,
           qualityScore: quality.overallScore,
-          attemptNumber: index + 2,
+          attemptNumber,
           createdAt: new Date().toISOString(),
         });
+
+        const startedAt = new Date().toISOString();
+        await recordGraphAttempt(env.DB, {
+          id: crypto.randomUUID(),
+          graphId: graph.id,
+          nodeId: node.id,
+          tenantId,
+          attemptNumber,
+          model: modelId,
+          provider: providerName(modelId),
+          status: 'running',
+          escalationReason,
+          startedAt,
+        });
+        await persist('running');
 
         try {
           const escalationProvider = getProvider(env, modelId);
@@ -167,10 +245,45 @@ async function executeNode(
             finalModel = modelId;
           }
 
+          await recordGraphAttempt(env.DB, {
+            id: crypto.randomUUID(),
+            graphId: graph.id,
+            nodeId: node.id,
+            tenantId,
+            attemptNumber,
+            model: modelId,
+            provider: providerName(modelId),
+            status: 'completed',
+            promptTokens: escalated.promptTokens,
+            completionTokens: escalated.completionTokens,
+            costCents: escalationCost,
+            qualityScore: candidateQuality.overallScore,
+            escalationReason,
+            startedAt,
+            completedAt: new Date().toISOString(),
+          });
+          await persist('running');
+
           if (!candidateQuality.shouldEscalate) break;
           previousModel = modelId;
         } catch (error: any) {
-          node.error = `Model ${modelId} failed: ${error?.message || 'unknown provider error'}`;
+          const message = `Model ${modelId} failed: ${error?.message || 'unknown provider error'}`;
+          node.error = message;
+          await recordGraphAttempt(env.DB, {
+            id: crypto.randomUUID(),
+            graphId: graph.id,
+            nodeId: node.id,
+            tenantId,
+            attemptNumber,
+            model: modelId,
+            provider: providerName(modelId),
+            status: 'failed',
+            escalationReason,
+            error: message,
+            startedAt,
+            completedAt: new Date().toISOString(),
+          });
+          await persist('running', message);
           previousModel = modelId;
         }
       }
@@ -183,11 +296,30 @@ async function executeNode(
       node.error = node.error || 'Quality threshold remained below the escalation stop condition';
       setNodeStatus(node, 'failed');
     } else {
+      node.error = undefined;
       setNodeStatus(node, 'completed');
     }
+    await persist(node.status, node.error);
   } catch (error: any) {
     node.error = error?.message || 'Node execution failed';
     setNodeStatus(node, 'failed');
+    await recordGraphAttempt(env.DB, {
+      id: crypto.randomUUID(),
+      graphId: graph.id,
+      nodeId: node.id,
+      tenantId,
+      attemptNumber: primaryAttemptNumber,
+      model: decision.primaryModel,
+      provider: providerName(decision.primaryModel),
+      status: 'failed',
+      promptTokens: node.tokensIn,
+      completionTokens: node.tokensOut,
+      costCents: node.costCents,
+      error: node.error,
+      startedAt: primaryStartedAt,
+      completedAt: new Date().toISOString(),
+    });
+    await persist('failed', node.error);
   }
 }
 
@@ -210,6 +342,76 @@ function blockDependents(graph: TaskGraph): void {
       }
     }
   }
+}
+
+async function executeGraphState(
+  env: HonoEnv['Bindings'],
+  tenantId: string,
+  graph: TaskGraph,
+  qualityPreference: 'cost-optimized' | 'balanced' | 'quality-first',
+): Promise<GraphExecutionResult> {
+  const executionOrder: string[] = [];
+  let totalCostCents = graph.nodes.reduce((sum, node) => sum + (node.costCents || 0), 0);
+  let tokensIn = graph.nodes.reduce((sum, node) => sum + (node.tokensIn || 0), 0);
+  let tokensOut = graph.nodes.reduce((sum, node) => sum + (node.tokensOut || 0), 0);
+
+  const budgetLeft = async () => {
+    const tenant = await getTenantById(env.DB, tenantId);
+    const budget = tenant?.monthlyBudgetCents || 10000;
+    const spent = await getMonthlySpend(env.DB, tenantId);
+    return Math.max(0, budget - spent);
+  };
+
+  const persist = async (status = 'running', error?: string) => {
+    const active = graph.nodes.find((node) => node.status === 'running')?.id || null;
+    await persistGraphSnapshot(env.DB, tenantId, graph, status, active, error, { owner: graph.id });
+  };
+
+  while (graph.nodes.some((node) => node.status === 'pending' || node.status === 'ready')) {
+    blockDependents(graph);
+    const ready = graph.nodes.filter((node) => {
+      if (node.status !== 'ready' && node.status !== 'pending') return false;
+      return node.dependencies.every((dependency) =>
+        graph.nodes.some((candidate) => candidate.id === dependency && candidate.status === 'completed')
+      );
+    });
+
+    if (ready.length === 0) break;
+
+    for (const node of ready) {
+      await executeNode(env, graph, node, tenantId, qualityPreference, budgetLeft, persist);
+      executionOrder.push(node.id);
+      totalCostCents = graph.nodes.reduce((sum, item) => sum + (item.costCents || 0), 0);
+      tokensIn = graph.nodes.reduce((sum, item) => sum + (item.tokensIn || 0), 0);
+      tokensOut = graph.nodes.reduce((sum, item) => sum + (item.tokensOut || 0), 0);
+      blockDependents(graph);
+      await persist('running');
+    }
+  }
+
+  const failed = graph.nodes.some((node) => node.status === 'failed');
+  const blocked = graph.nodes.some((node) => node.status === 'blocked');
+  const status: GraphExecutionResult['status'] = failed ? 'failed' : blocked ? 'blocked' : 'completed';
+  graph.completedAt = status === 'completed' ? new Date().toISOString() : undefined;
+
+  const terminalNodes = graph.nodes.filter(
+    (node) => !graph.nodes.some((candidate) => candidate.dependencies.includes(node.id))
+  );
+  const output = terminalNodes
+    .filter((node) => node.output)
+    .map((node) => node.output)
+    .join('\n\n');
+
+  await persistGraphSnapshot(env.DB, tenantId, graph, status, null, failed ? 'One or more graph nodes failed' : null, { owner: graph.id });
+  return {
+    graph,
+    status,
+    output,
+    totalCostCents: Math.round(totalCostCents * 100) / 100,
+    tokensIn,
+    tokensOut,
+    executionOrder,
+  };
 }
 
 export async function executeTaskGraph(
@@ -257,72 +459,65 @@ export async function executeTaskGraph(
     createdAt: new Date().toISOString(),
   };
 
-  const executionOrder: string[] = [];
-  let totalCostCents = 0;
-  let tokensIn = 0;
-  let tokensOut = 0;
+  const leaseOwner = graph.id;
+  await persistGraph(env.DB, tenantId, graph, projectId, { owner: leaseOwner });
+  if (!(await acquireGraphExecutionLease(env.DB, tenantId, graph.id, leaseOwner))) {
+    throw new Error('Graph execution lease could not be acquired');
+  }
 
-  const budgetLeft = async () => {
-    const budget = tenant?.monthlyBudgetCents || 10000;
-    const spent = await getMonthlySpend(env.DB, tenantId);
-    return Math.max(0, budget - spent);
-  };
-
-  while (graph.nodes.some((node) => node.status === 'pending' || node.status === 'ready')) {
-    blockDependents(graph);
-    const ready = graph.nodes.filter((node) => {
-      if (node.status !== 'ready' && node.status !== 'pending') return false;
-      return node.dependencies.every((dependency) =>
-        graph.nodes.some((candidate) => candidate.id === dependency && candidate.status === 'completed')
-      );
+  try {
+    const result = await executeGraphState(env, tenantId, graph, qualityPreference);
+    await updateTask(env.DB, rootTask.id, tenantId, {
+      status: result.status === 'completed' ? 'completed' : 'failed',
+      output: result.output,
+      totalCostCents: result.totalCostCents,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      escalationCount: graph.nodes.reduce(
+        (count, node) => count + Math.max(0, node.attemptedModels.length - 1),
+        0
+      ),
+      completedAt: result.status === 'completed' ? new Date().toISOString() : undefined,
     });
+    return result;
+  } catch (error) {
+    await persistGraphSnapshot(
+      env.DB,
+      tenantId,
+      graph,
+      'failed',
+      graph.nodes.find((node) => node.status === 'running')?.id || null,
+      error instanceof Error ? error.message : 'Graph execution failed',
+      { owner: leaseOwner },
+    );
+    throw error;
+  }
+}
 
-    if (ready.length === 0) break;
+export async function resumeTaskGraph(
+  env: HonoEnv['Bindings'],
+  tenantId: string,
+  graphId: string,
+): Promise<GraphExecutionResult> {
+  const graph = await getPersistedGraph(env.DB, tenantId, graphId);
+  if (!graph) throw new Error('Graph not found');
 
-    // Sequential execution keeps budget accounting deterministic until atomic reservation exists.
-    for (const node of ready) {
-      await executeNode(env, graph, node, tenantId, qualityPreference, budgetLeft);
-      executionOrder.push(node.id);
-      totalCostCents += node.costCents || 0;
-      tokensIn += node.tokensIn || 0;
-      tokensOut += node.tokensOut || 0;
-      blockDependents(graph);
+  const owner = crypto.randomUUID();
+  if (!(await acquireGraphExecutionLease(env.DB, tenantId, graphId, owner))) {
+    throw new Error('Graph is currently owned by another execution');
+  }
+
+  const tenant = await getTenantById(env.DB, tenantId);
+  const qualityPreference = tenant?.qualityPreference || 'balanced';
+
+  for (const node of graph.nodes) {
+    if (node.status === 'running') {
+      node.status = 'ready';
+      node.error = 'Recovered after interrupted execution; retrying node';
     }
   }
 
-  const failed = graph.nodes.some((node) => node.status === 'failed');
-  const blocked = graph.nodes.some((node) => node.status === 'blocked');
-  const status: GraphExecutionResult['status'] = failed ? 'failed' : blocked ? 'blocked' : 'completed';
-  graph.completedAt = status === 'completed' ? new Date().toISOString() : undefined;
-
-  const terminalNodes = graph.nodes.filter(
-    (node) => !graph.nodes.some((candidate) => candidate.dependencies.includes(node.id))
-  );
-  const output = terminalNodes
-    .filter((node) => node.output)
-    .map((node) => node.output)
-    .join('\n\n');
-
-  await updateTask(env.DB, rootTask.id, tenantId, {
-    status: status === 'completed' ? 'completed' : 'failed',
-    output,
-    totalCostCents: Math.round(totalCostCents * 100) / 100,
-    tokensIn,
-    tokensOut,
-    escalationCount: graph.nodes.reduce(
-      (count, node) => count + Math.max(0, node.attemptedModels.length - 1),
-      0
-    ),
-    completedAt: status === 'completed' ? new Date().toISOString() : undefined,
-  });
-
-  return {
-    graph,
-    status,
-    output,
-    totalCostCents: Math.round(totalCostCents * 100) / 100,
-    tokensIn,
-    tokensOut,
-    executionOrder,
-  };
+  blockDependents(graph);
+  await persistGraphSnapshot(env.DB, tenantId, graph, 'running', null, null, { owner });
+  return executeGraphState(env, tenantId, graph, qualityPreference);
 }

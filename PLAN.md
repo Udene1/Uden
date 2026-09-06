@@ -63,41 +63,40 @@ Shared TypeScript contracts for tasks, models, pricing, constants and task graph
 - [x] Execution ownership lease and expiry protection added.
 - [x] Persisted resume endpoint added; completed nodes are preserved while incomplete nodes are retried.
 - [x] Attempt identity is idempotent at the graph-attempt table level.
-- [x] Usage-record writes now support stable identities, but graph execution still needs to pass the stable usage ID on every provider attempt before accounting idempotency is considered complete.
+- [x] Graph usage accounting is keyed by the durable attempt ID, so replaying the same completed attempt cannot create a second usage row.
 - [x] Base schema and migrations are aligned; migration `0003_graph_durable_execution.sql` adds ownership/lease fields and the unique attempt identity.
 
 ### Dashboard graph maturity
 - [x] Basic real graph visualization and node inspection.
-- [ ] Render actual dependency edges/layout rather than only ordered node cards.
+- [x] Render dependency edges with staged graph layout.
 - [x] Show attempt history from `task_graph_attempts`.
-- [ ] Show execution timeline and latency from persisted timestamps.
+- [x] Show execution timeline and per-attempt latency from persisted timestamps.
 - [x] Show escalation reason in persisted attempt history.
 - [x] Show blocked-node dependency explanation in node state.
-- [ ] Add graph-level refresh/live execution state where architecture permits.
+- [x] Add graph refresh/live state polling while execution is running.
+- [x] Add explicit resume controls for failed/blocked graphs.
 
 ### Verification / CI
 - [x] GitHub Actions CI workflow added for `npm ci`, workspace build and tests.
+- [x] Real D1 integration coverage uses Wrangler's local D1/workerd proxy without mocks.
+- [x] D1 coverage verifies graph persistence, tenant isolation, idempotent attempt/usage writes and execution lease ownership.
 - [ ] First CI run must be observed and failures fixed rather than assumed green.
-- [ ] Real D1 integration tests for persistence/resume.
+- [ ] Extend D1 integration coverage to a full provider-independent crash/resume execution path.
 
-## Known gaps — next engineering targets
+## Reliability/security — now active
 
-1. Pass a stable usage-record ID derived from `(graphId,nodeId,attemptNumber)` into `recordUsage` so a Worker retry cannot duplicate accounting for the same persisted attempt.
-2. Add real D1 integration tests for graph creation, transitions, attempt upserts, resume and tenant isolation.
-3. Improve graph visualization with dependency edges/layout and persisted execution timeline.
-4. Add refresh/live state and explicit resume/retry controls in the dashboard.
-
-## Reliability/security
-
+- [x] Input/context size limits for graph requests and node relationships.
+- [x] Graph pagination bounds.
+- [x] Tenant-scoped graph reads/writes and attempt reads.
+- [x] Graph execution rate limiting through KV-backed fixed windows.
+- [x] Execution ownership/concurrency protection.
+- [x] Idempotent persisted attempt/usage identity.
 - [ ] Real end-to-end graph execution test using the repository's real integration/recording strategy.
 - [ ] Multi-node dependency test.
 - [ ] Budget exhaustion test.
 - [ ] Provider failure and downstream blocking test.
-- [ ] Tenant isolation test.
-- [ ] Idempotent resume/retry test.
+- [ ] Idempotent resume/retry execution test.
 - [ ] Atomic budget reservation before parallel execution.
-- [ ] Input/context size limits.
-- [ ] Graph execution rate limiting.
 - [ ] Safe provider error handling and secret protection.
 - [ ] Structured operational logging without unnecessary prompt leakage.
 
@@ -132,7 +131,7 @@ All analytics must originate from recorded execution data.
 
 ## Anti-drift order
 
-**Finish durable accounting + real D1 verification → dashboard graph maturity → reliability/security → permissions → analytics → production hardening.**
+**Reliability/security → permissions → analytics → production hardening.**
 
 Do not jump ahead unless a concrete dependency requires it.
 
@@ -142,4 +141,4 @@ A milestone is done only when it is integrated into the real architecture, prese
 
 ## Immediate next action
 
-**Finish stable usage IDs in graph execution, add real D1 integration tests for persistence/resume/tenant isolation, then complete dependency-edge/timeline dashboard work before moving into broader reliability/security.**
+**Continue reliability/security: provider error sanitization, real multi-node/budget/failure tests, durable resume verification, then atomic budget reservation and production-grade background execution.**

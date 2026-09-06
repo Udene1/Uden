@@ -1,161 +1,151 @@
 # Uden — Implementation Plan & Project Guardrail
 
-> **Source of truth.** This plan tracks what is actually in the repository and the order in which we build it. Future sessions must inspect this file and the latest commits before changing direction.
+> **Source of truth.** This file records the actual repository state and the build order. Future sessions must inspect it and recent commits before changing direction.
 
-## Product goal
+## Product vision
 
-Uden is a production-grade, multi-tenant AI work partner—not a chatbot wrapper. It should take real knowledge work, decompose complex requests, route each unit to the cheapest capable model, execute with quality gates and escalation, enforce budgets, record economics, and expose the work through the dashboard.
+Uden is a production-grade, multi-tenant **AI work partner**, not a chatbot wrapper. A user gives Uden real knowledge work; Uden should understand it, decompose complex work, route each unit to the cheapest capable model, execute with quality gates and escalation, control spend, preserve an auditable work trail, and expose the work and economics through the dashboard.
 
-### Non-negotiables
+The system should optimize for **useful completed work, quality, cost efficiency, explainability and tenant safety**.
 
-- Real implementation over demos or placeholder success paths.
-- No mock-driven completion of required integrations.
-- Cost and quality are first-class execution constraints.
-- Every node is independently routable and auditable.
-- Explicit tenant isolation on every persisted/read operation.
-- Preserve the existing Cloudflare Workers + Hono + D1/KV engine and Next.js dashboard architecture.
-- Finish one technically coherent layer before jumping to unrelated features.
+## Non-negotiables
+
+- Real implementation; no fake success paths or production-looking mock data.
+- Do not weaken tests or replace required real integrations merely to get green tests.
+- Cost and quality are first-class constraints.
+- Every graph node is independently routable and auditable.
+- Tenant isolation applies to every read, write and execution path.
+- Preserve the Cloudflare Workers + Hono + D1/KV engine, Next.js dashboard and shared TypeScript contracts.
+- Build coherent layers in order; do not drift into unrelated features.
 - Every substantial milestone ends with verification where available and a focused Git commit.
 
-## Architecture already established
+## Architecture
 
 ### Engine
-Cloudflare Workers, Hono, D1, KV, API-key tenant auth, deterministic classifier, cost-aware router/fallbacks, quality checks, escalation, provider adapters (OpenAI/Anthropic/Google/DeepSeek), usage accounting, and task-graph planning/routing.
+Cloudflare Workers, Hono, D1, KV, API-key authentication, deterministic classifier, model registry/pricing, cost-aware routing/fallbacks, quality checks, escalation, provider adapters (OpenAI/Anthropic/Google/DeepSeek), usage accounting and task-graph planning/execution.
 
 ### Dashboard
-Next.js App Router with task, project, analytics and settings surfaces plus existing Recharts components. The graph UI must consume real engine data when it is introduced.
+Next.js App Router with existing task/project/analytics/settings surfaces. Graph visualization is a real data surface and must not invent execution data.
 
 ### Shared
 Shared TypeScript contracts for tasks, models, pricing, constants and task graphs.
 
-## Completed milestones
+## Completed
 
-### Engine foundation
-
-- [x] Shared domain types/model registry.
-- [x] Deterministic task classifier.
-- [x] Cost-aware routing and fallback chains.
+### Foundation
+- [x] Shared domain/model contracts and registry.
+- [x] Deterministic classifier.
+- [x] Cost-aware router and fallback chains.
 - [x] Quality checks and escalation.
-- [x] Provider adapters.
+- [x] Real provider adapters.
 - [x] Usage/cost accounting.
-- [x] Tenant/task/project/usage API foundations.
-- [x] Existing Vitest coverage for classifier/routing/quality foundations.
+- [x] Tenant/task/project/usage APIs.
+- [x] Classifier/routing/quality tests.
 
-### Task-graph foundation
+### Graph planning/execution
+- [x] TaskGraph/TaskNode contracts and statuses.
+- [x] Deterministic compound-task decomposition.
+- [x] Per-node routing.
+- [x] Graph planning endpoint.
+- [x] Dependency validation and cycle rejection.
+- [x] Explicit upstream context propagation.
+- [x] Real provider execution per node.
+- [x] Quality gates and fallback escalation.
+- [x] Budget checks and usage accounting.
+- [x] Downstream blocking after failed dependencies.
+- [x] Aggregate graph result and root-task accounting.
+- [x] Authenticated graph execution endpoint.
 
-- [x] `TaskGraph` / `TaskNode` domain primitives and statuses.
-- [x] Shared exports.
-- [x] Deterministic decomposition of compound requests.
-- [x] Per-node routing using complexity/domain/quality/budget/risk context.
-- [x] `POST /api/v1/tasks/plan` preview endpoint with no model spend.
+### Persistence/dashboard slice completed in latest work
+- [x] D1 migration for `task_graphs`, `task_graph_nodes` and `task_graph_attempts`.
+- [x] Migration commands exposed in engine package scripts.
+- [x] Tenant-scoped persistence service for graph/node state and attempt history.
+- [x] Tenant-scoped graph listing/read/attempt endpoints.
+- [x] Dashboard `/graphs` page.
+- [x] Dashboard graph node/status/cost/token/detail visualization.
+- [x] Graph navigation added to the dashboard sidebar.
+- [x] Dashboard graph data client uses real API calls; no graph mock fallback.
 
-### Graph execution slice — completed in this session
+## Known gap — next engineering target
 
-- [x] Added `PLAN.md` as the anti-drift source of truth.
-- [x] Added real graph orchestration in `packages/engine/src/services/graph-executor.ts`.
-- [x] Validate duplicate IDs, missing dependencies, self-dependencies and cycles before execution.
-- [x] Resolve dependency order and block downstream nodes after failed dependencies.
-- [x] Propagate only explicit `contextFrom` outputs, including upstream quality scores.
-- [x] Route each node independently through the existing graph router.
-- [x] Execute through the real provider adapter layer.
-- [x] Apply existing quality checks to every node attempt.
-- [x] Perform budget checks before primary and escalation attempts.
-- [x] Escalate through the existing fallback chain and record escalation/usage data.
-- [x] Aggregate graph cost, tokens, execution order and terminal output.
-- [x] Create a real root task so graph usage/escalation records remain attached to the existing task accounting model.
-- [x] Added authenticated `POST /api/v1/tasks/graph/execute` endpoint; accepts either a prompt or a validated plan.
-- [x] Added deterministic tests for graph validation and explicit context propagation.
-- [x] Kept existing single-task execution path intact.
+The persistence schema and read layer exist, but the current graph executor still completes its in-memory execution before the route persists the final graph. Therefore **mid-execution crash recovery is not yet complete**, and attempt history is not yet populated by the executor itself on every attempt.
 
-**Important implementation note:** graph nodes currently execute sequentially even when independent. This is deliberate: atomic budget reservation does not yet exist, so sequential execution avoids concurrent spend races. Parallel graph waves belong in the production-hardening stage after reservation semantics exist.
+This is intentional technical debt to resolve before claiming durable execution complete.
 
-## Current milestone: graph persistence
+## Next milestone: true durable execution
 
-The graph is now executable in memory and attached to the existing task/usage model. The next layer is durable graph state.
+1. Wire persistence directly into the graph executor so graph creation, node transitions and every model attempt are written as execution proceeds.
+2. Record primary and escalation attempts with exact model, provider, token counts, cost, quality, timestamps and error state.
+3. Make graph/node writes idempotent so a Worker retry cannot double-bill a completed attempt.
+4. Add execution version / ownership or equivalent concurrency protection.
+5. Implement resume/retry from persisted state, continuing only unfinished nodes and preserving completed outputs.
+6. Ensure failed/blocked/running states survive Worker/request termination.
+7. Add tests for crash/resume, duplicate retry and tenant isolation.
 
-### Persistence requirements
+## Then: dashboard graph maturity
 
-- [ ] Add D1 graph table scoped to tenant/root task/project.
-- [ ] Add D1 graph-node table with dependency/context metadata and lifecycle state.
-- [ ] Add node-attempt table/history for every model attempt, including escalation.
-- [ ] Persist graph creation and completion/failure state.
-- [ ] Persist node outputs, quality scores, selected model, attempted models, tokens and cost.
-- [ ] Add tenant-scoped graph read endpoints.
-- [ ] Add safe resume/retry semantics for failed nodes.
-- [ ] Make retry/idempotency semantics explicit so completed work is not accidentally re-billed.
-- [ ] Keep the in-memory executor usable for unit-level deterministic logic.
+- [x] Basic real graph visualization and node inspection.
+- [ ] Render actual dependency edges/layout rather than only ordered node cards.
+- [ ] Show attempt history from `task_graph_attempts`.
+- [ ] Show execution timeline and latency from persisted timestamps.
+- [ ] Show escalation chain and why escalation occurred.
+- [ ] Show blocked-node dependency explanation.
+- [ ] Add graph-level refresh/live execution state where architecture permits.
+- [ ] Keep existing dashboard visual language; do not redesign unrelated surfaces.
 
-Do not start the dashboard graph UI until the API can return durable graph state.
+## Reliability/security
 
-## Next milestone: real dashboard graph
-
-After persistence:
-
-- [ ] Graph view with dependency edges.
-- [ ] Node states: pending, ready, running, completed, failed, blocked, awaiting approval.
-- [ ] Per-node model, tier, quality, cost and latency where available.
-- [ ] Execution timeline/order.
-- [ ] Aggregate graph cost/tokens.
-- [ ] Escalation chain visibility.
-- [ ] Node detail view: prompt, upstream context, output and attempt history.
-- [ ] Explain why a node is blocked.
-- [ ] No hardcoded production-looking graph data.
-- [ ] Do not redesign unrelated dashboard surfaces.
-
-## Reliability and integration track
-
-- [ ] End-to-end simple graph execution test using real integration/recording strategy.
-- [ ] Multi-node dependency execution test.
-- [ ] Parallel-ready-node semantics after atomic reservation is implemented.
-- [ ] Quality-triggered escalation test.
+- [ ] Real end-to-end graph execution test using the repository's real integration/recording strategy.
+- [ ] Multi-node dependency test.
 - [ ] Budget exhaustion test.
-- [ ] Provider failure + downstream blocking test.
+- [ ] Provider failure and downstream blocking test.
 - [ ] Tenant isolation test.
 - [ ] Idempotent resume/retry test.
-- [ ] Run `typecheck`, build and test suites when the environment permits; fix real failures rather than weakening assertions.
+- [ ] Atomic budget reservation before parallel execution.
+- [ ] Input/context size limits.
+- [ ] Graph execution rate limiting.
+- [ ] Safe provider error handling and secret protection.
+- [ ] Structured operational logging without unnecessary prompt leakage.
 
-## Permission / human-in-the-loop track
+## Permissions / human-in-the-loop
 
-- [ ] Graph-level cost/risk proposal.
-- [ ] Approval/rejection before spend.
-- [ ] Preserve the approved routing plan.
-- [ ] Optional approval gates for sensitive/high-risk nodes.
-- [ ] Enforce authorization for graph mutation.
+- [ ] Graph-level cost/risk proposal before spend where required.
+- [ ] Approval/rejection and preservation of approved routing.
+- [ ] Sensitive/high-risk node approval gates.
+- [ ] Authorization for graph mutation/resume.
 
-## Analytics track
+## Analytics
 
 - [ ] Cost by graph/node/domain.
 - [ ] Escalation rate by node/domain/model.
 - [ ] Estimated vs actual graph cost.
-- [ ] Model-routing savings.
+- [ ] Routing savings.
 - [ ] Quality before/after escalation.
-- [ ] Graph completion time.
+- [ ] Completion time and latency.
 - [ ] Failure/blocked-node rate.
 
 All analytics must originate from recorded execution data.
 
-## Production security/hardening
+## Production hardening
 
 - [ ] Strict tenant scoping everywhere.
-- [ ] Input and prompt/context size limits.
-- [ ] Graph execution rate limiting.
-- [ ] Atomic budget reservation for concurrent execution.
-- [ ] Safe provider error handling without secret leakage.
-- [ ] No secrets in Git.
-- [ ] Structured operational logging without unnecessary prompt leakage.
-- [ ] Deterministic, auditable billing records.
 - [ ] Concurrency/idempotency controls.
+- [ ] Atomic budget reservation.
+- [ ] Durable job execution outside a single request where required by workload duration.
+- [ ] Retry/backoff policy for transient provider failures.
+- [ ] Observability and operational alerts.
+- [ ] Final typecheck/build/test/deployment verification.
+
+## Anti-drift order
+
+**True durable execution → dashboard graph maturity → reliability/security → permissions → analytics → production hardening.**
+
+Do not jump ahead unless a concrete dependency requires it.
 
 ## Definition of done
 
-A feature is not done merely because it compiles. It must be integrated, preserve existing behavior unless intentionally changed, have appropriate tests, preserve real integrations, be verified as far as the environment allows, and be committed with a clear message. This plan must then be updated.
-
-## Anti-drift execution order
-
-**Graph execution → graph persistence → dashboard graph → reliability/security → permissions → analytics → production hardening.**
-
-At the beginning of a future session inspect `PLAN.md`, recent commits, graph/task files, tests and CI status. Continue from the first unchecked item that is technically unblocked.
+A milestone is done only when it is integrated into the real architecture, preserves existing behavior, has appropriate tests, keeps real integrations intact, is verified as far as the environment permits, is committed with a clear message, and this plan is updated.
 
 ## Immediate next action
 
-**Start graph persistence:** design and implement the D1 schema/migrations plus tenant-scoped graph/node/attempt queries, then wire the executor so graph state and attempt history survive beyond a single request. Commit that coherent persistence slice before moving to the dashboard graph.
+**Wire `graph-executor.ts` directly to the persistence service, make attempt/state writes durable and idempotent, implement persisted resume/retry, then verify with real tests before further dashboard polish.**

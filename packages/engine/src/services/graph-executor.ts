@@ -5,14 +5,7 @@ import { getProvider } from './providers';
 import { routeGraphNode } from './graph-router';
 import { createEscalationLog, createTask, getMonthlySpend, getTenantById, updateTask } from '../db/queries';
 import { classifyTask } from './classifier';
-import type {
-  Task,
-  TaskGraph,
-  TaskGraphPlan,
-  TaskNode,
-  TaskNodeStatus,
-  QualityReport,
-} from '@ai-work-partner/shared';
+import type { Task, TaskGraph, TaskGraphPlan, TaskNode, TaskNodeStatus } from '@ai-work-partner/shared';
 import { MAX_ESCALATION_ATTEMPTS } from '@ai-work-partner/shared';
 
 export interface GraphExecutionResult {
@@ -97,7 +90,6 @@ async function executeNode(
   setNodeStatus(node, 'running');
 
   const prompt = buildNodePrompt(node, graph);
-  const provider = getProvider(env, decision.primaryModel);
 
   if (!(await checkBudget(env, tenantId))) {
     node.error = 'Budget exceeded before node execution';
@@ -106,6 +98,7 @@ async function executeNode(
   }
 
   try {
+    const provider = getProvider(env, decision.primaryModel);
     const response = await provider.execute(prompt, decision.primaryModel);
     const primaryCost = await recordUsage(
       env,
@@ -138,7 +131,10 @@ async function executeNode(
           taskId: graph.rootTaskId,
           fromModel: previousModel,
           toModel: modelId,
-          reason: quality.escalationReason || quality.checks.filter((check) => !check.passed).map((check) => check.reason).join('; ') || 'Quality threshold failed',
+          reason:
+            quality.escalationReason ||
+            quality.checks.filter((check) => !check.passed).map((check) => check.reason).join('; ') ||
+            'Quality threshold failed',
           qualityScore: quality.overallScore,
           attemptNumber: index + 2,
           createdAt: new Date().toISOString(),
@@ -205,8 +201,9 @@ function blockDependents(graph: TaskGraph): void {
     changed = false;
     for (const node of graph.nodes) {
       if (node.status !== 'pending' && node.status !== 'ready') continue;
-      if (node.dependencies.some((dependency) => failed.has(dependency))) {
-        node.error = `Blocked by failed dependency: ${node.dependencies.find((dependency) => failed.has(dependency))}`;
+      const failedDependency = node.dependencies.find((dependency) => failed.has(dependency));
+      if (failedDependency) {
+        node.error = `Blocked by failed dependency: ${failedDependency}`;
         setNodeStatus(node, 'blocked');
         failed.add(node.id);
         changed = true;
@@ -262,8 +259,8 @@ export async function executeTaskGraph(
 
   const executionOrder: string[] = [];
   let totalCostCents = 0;
-  let totalTokensIn = 0;
-  let totalTokensOut = 0;
+  let tokensIn = 0;
+  let tokensOut = 0;
 
   const budgetLeft = async () => {
     const budget = tenant?.monthlyBudgetCents || 10000;
@@ -282,21 +279,20 @@ export async function executeTaskGraph(
 
     if (ready.length === 0) break;
 
-    // Execute sequentially for now: this keeps budget accounting deterministic.
-    // Parallel waves can be added once atomic budget reservation exists.
+    // Sequential waves keep budget accounting deterministic until atomic budget reservation exists.
     for (const node of ready) {
       await executeNode(env, graph, node, tenantId, qualityPreference, budgetLeft);
       executionOrder.push(node.id);
       totalCostCents += node.costCents || 0;
-      totalTokensIn += node.tokensIn || 0;
-      totalTokensOut += node.tokensOut || 0;
+      tokensIn += node.tokensIn || 0;
+      tokensOut += node.tokensOut || 0;
       blockDependents(graph);
     }
   }
 
   const failed = graph.nodes.some((node) => node.status === 'failed');
   const blocked = graph.nodes.some((node) => node.status === 'blocked');
-  const status = failed ? 'failed' : blocked ? 'blocked' : 'completed';
+  const status: GraphExecutionResult['status'] = failed ? 'failed' : blocked ? 'blocked' : 'completed';
   graph.completedAt = status === 'completed' ? new Date().toISOString() : undefined;
 
   const terminalNodes = graph.nodes.filter(
@@ -308,11 +304,11 @@ export async function executeTaskGraph(
     .join('\n\n');
 
   await updateTask(env.DB, rootTask.id, tenantId, {
-    status,
+    status: status === 'completed' ? 'completed' : 'failed',
     output,
     totalCostCents: Math.round(totalCostCents * 100) / 100,
-    tokensIn: totalTokensIn,
-    tokensOut: totalTokensOut,
+    tokensIn,
+    tokensOut,
     escalationCount: graph.nodes.reduce(
       (count, node) => count + Math.max(0, node.attemptedModels.length - 1),
       0
@@ -325,8 +321,8 @@ export async function executeTaskGraph(
     status,
     output,
     totalCostCents: Math.round(totalCostCents * 100) / 100,
-    tokensIn: totalTokensIn,
-    tokensOut: totalTokensOut,
+    tokensIn,
+    tokensOut,
     executionOrder,
   };
 }

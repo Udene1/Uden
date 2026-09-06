@@ -12,7 +12,7 @@ function duration(a:Attempt){if(!a.started_at||!a.completed_at)return '—';retu
 export default function TaskGraphView({graph,attempts=[],onRefresh,onResume,resuming}:Props){
  const [selected,setSelected]=useState(graph.nodes[0]?.id); const [positions,setPositions]=useState<Record<string,{x:number;y:number}>>({}); const wrap=useRef<HTMLDivElement>(null);
  const node=graph.nodes.find(n=>n.id===selected); const cost=graph.nodes.reduce((s,n)=>s+(n.costCents||0),0); const tokens=graph.nodes.reduce((s,n)=>s+(n.tokensIn||0)+(n.tokensOut||0),0);
- const columns=useMemo(()=>{const map=new Map<number,Node[]>();for(const n of graph.nodes){const d=depthOf(n,graph.nodes);map.set(d,[...(map.get(d)||[]),n]);}return [...map.entries()].sort((a,b)=>a[0]-b[0]);},[graph.nodes]);
+ const columns=useMemo(()=>{const map=new Map<number,Node[]>();for(const n of graph.nodes){const d=depthOf(n,graph.nodes);map.set(d,[...(map.get(d)||[]),n]);}return Array.from(map.entries()).sort((a,b)=>a[0]-b[0]);},[graph.nodes]);
  useEffect(()=>{const update=()=>{const root=wrap.current;if(!root)return;const r=root.getBoundingClientRect();const next:Record<string,{x:number;y:number}>={};root.querySelectorAll<HTMLElement>('[data-node-id]').forEach(el=>{const b=el.getBoundingClientRect();next[el.dataset.nodeId!]={x:b.left-r.left+b.width/2,y:b.top-r.top+b.height/2};});setPositions(next)};update();window.addEventListener('resize',update);return()=>window.removeEventListener('resize',update)},[graph.nodes,selected]);
  const edges=graph.nodes.flatMap(n=>n.dependencies.map(d=>({from:d,to:n.id}))).filter(e=>positions[e.from]&&positions[e.to]);
  const nodeAttempts=attempts.filter(a=>a.node_id===selected);

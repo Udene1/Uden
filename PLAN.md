@@ -80,25 +80,28 @@ Shared TypeScript contracts for tasks, models, pricing, constants and task graph
 - [x] GitHub Actions CI workflow added for `npm ci`, workspace build and tests.
 - [x] Real D1 integration coverage uses Wrangler's local D1/workerd proxy without mocks.
 - [x] D1 coverage verifies graph persistence, tenant isolation, idempotent attempt/usage writes and execution lease ownership.
+- [x] Reliability D1 coverage verifies multi-node dependency blocking, budget reservation exhaustion/release and persisted crash recovery.
 - [ ] First CI run must be observed and failures fixed rather than assumed green.
-- [ ] Extend D1 integration coverage to a full provider-independent crash/resume execution path.
 
-## Reliability/security — now active
+## Reliability/security — active
 
 - [x] Input/context size limits for graph requests and node relationships.
 - [x] Graph pagination bounds.
 - [x] Tenant-scoped graph reads/writes and attempt reads.
 - [x] Graph execution rate limiting through KV-backed fixed windows.
 - [x] Execution ownership/concurrency protection.
-- [x] Idempotent persisted attempt/usage identity.
-- [ ] Real end-to-end graph execution test using the repository's real integration/recording strategy.
-- [ ] Multi-node dependency test.
-- [ ] Budget exhaustion test.
-- [ ] Provider failure and downstream blocking test.
-- [ ] Idempotent resume/retry execution test.
-- [ ] Atomic budget reservation before parallel execution.
-- [ ] Safe provider error handling and secret protection.
+- [x] Stable durable attempt IDs and idempotent usage accounting.
+- [x] Provider error sanitization with secret redaction and bounded error messages.
+- [x] Transient provider retry/backoff with bounded attempts.
+- [x] Real multi-node dependency/failure-blocking coverage.
+- [x] Budget exhaustion coverage.
+- [x] Persisted crash/resume verification without provider mocks.
+- [x] Atomic D1 budget reservation before provider execution.
+- [x] Durable reservation release on completed/failed attempts.
+- [x] Production-grade background graph execution through Cloudflare Queues with retry policy and DLQ.
+- [x] Background jobs persist the graph before enqueueing; queue redelivery resumes the same graph ID instead of creating duplicate graphs.
 - [ ] Structured operational logging without unnecessary prompt leakage.
+- [ ] First real end-to-end graph execution test using the repository's real provider/integration recording strategy.
 
 ## Permissions / human-in-the-loop
 
@@ -121,11 +124,11 @@ All analytics must originate from recorded execution data.
 
 ## Production hardening
 
-- [ ] Strict tenant scoping everywhere.
-- [ ] Concurrency/idempotency controls.
-- [ ] Atomic budget reservation.
-- [ ] Durable job execution outside a single request where required by workload duration.
-- [ ] Retry/backoff policy for transient provider failures.
+- [x] Strict tenant scoping for graph reads/writes/execution paths.
+- [x] Concurrency/idempotency controls for graph execution and attempts.
+- [x] Atomic budget reservation.
+- [x] Durable job execution outside a single request for long-running graph workloads.
+- [x] Retry/backoff policy for transient provider failures.
 - [ ] Observability and operational alerts.
 - [ ] Final typecheck/build/test/deployment verification.
 
@@ -141,4 +144,4 @@ A milestone is done only when it is integrated into the real architecture, prese
 
 ## Immediate next action
 
-**Continue reliability/security: provider error sanitization, real multi-node/budget/failure tests, durable resume verification, then atomic budget reservation and production-grade background execution.**
+**Finish reliability verification/observability, then move into permissions and analytics.**

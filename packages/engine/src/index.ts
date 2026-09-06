@@ -8,13 +8,17 @@ import { tenantRoutes } from './routes/tenants';
 import { projectRoutes } from './routes/projects';
 import { usageRoutes } from './routes/usage';
 import { healthRoutes } from './routes/health';
+import { auditRoutes } from './routes/audit';
 import { resumeTaskGraph } from './services/graph-executor';
+import { createRequestId, attachRequestId, logEvent } from './services/observability';
 
 const app = new Hono<HonoEnv>();
+app.use('*', async (c, next) => { const requestId = createRequestId(c); c.set('requestId' as never, requestId as never); attachRequestId(c, requestId); const started = Date.now(); try { await next(); } finally { logEvent('http_request', { requestId, method: c.req.method, path: new URL(c.req.url).pathname, status: c.res.status, latencyMs: Date.now() - started }); } });
 app.use('*', cors());
 app.use('/api/v1/tasks/*', authMiddleware, ratelimit);
 app.use('/api/v1/projects/*', authMiddleware, ratelimit);
 app.use('/api/v1/usage/*', authMiddleware, ratelimit);
+app.use('/api/v1/audit/*', authMiddleware, ratelimit);
 app.use('/api/v1/tenant', authMiddleware);
 app.use('/api/v1/tenant/*', authMiddleware);
 app.route('/api/v1/tasks', taskRoutes);
@@ -22,19 +26,15 @@ app.route('/api/v1/tenants', tenantRoutes);
 app.route('/api/v1/tenant', tenantRoutes);
 app.route('/api/v1/projects', projectRoutes);
 app.route('/api/v1/usage', usageRoutes);
+app.route('/api/v1/audit', auditRoutes);
 app.route('/api/v1/health', healthRoutes);
 
 export default {
   fetch: app.fetch,
   async queue(batch: MessageBatch<GraphExecutionQueueMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
-      try {
-        await resumeTaskGraph(env, message.body.tenantId, message.body.graphId);
-        message.ack();
-      } catch (error) {
-        console.error(JSON.stringify({ event: 'graph_queue_failed', messageId: message.id, graphId: message.body.graphId, tenantId: message.body.tenantId, error: error instanceof Error ? error.message : 'unknown' }));
-        message.retry({ delaySeconds: 30 });
-      }
+      try { await resumeTaskGraph(env, message.body.tenantId, message.body.graphId); message.ack(); }
+      catch (error) { logEvent('graph_queue_failed', { messageId: message.id, graphId: message.body.graphId, tenantId: message.body.tenantId, error }); message.retry({ delaySeconds: 30 }); }
     }
   },
 };

@@ -86,7 +86,6 @@ CREATE TABLE IF NOT EXISTS usage_records (
 CREATE INDEX IF NOT EXISTS idx_usage_records_tenant_created ON usage_records(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_records_task_id ON usage_records(task_id);
 
--- Durable graph state. A graph is always tenant-scoped through the root task.
 CREATE TABLE IF NOT EXISTS task_graphs (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
@@ -95,6 +94,8 @@ CREATE TABLE IF NOT EXISTS task_graphs (
   goal TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   execution_version INTEGER NOT NULL DEFAULT 1,
+  execution_owner TEXT,
+  lease_until DATETIME,
   active_node_id TEXT,
   last_error TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -107,6 +108,7 @@ CREATE TABLE IF NOT EXISTS task_graphs (
 );
 CREATE INDEX IF NOT EXISTS idx_task_graphs_tenant_created ON task_graphs(tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_task_graphs_tenant_status ON task_graphs(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_graphs_lease ON task_graphs(status, lease_until);
 
 CREATE TABLE IF NOT EXISTS task_graph_nodes (
   id TEXT NOT NULL,
@@ -160,5 +162,6 @@ CREATE TABLE IF NOT EXISTS task_graph_attempts (
   FOREIGN KEY (graph_id, node_id) REFERENCES task_graph_nodes(graph_id, id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_graph_attempt_identity ON task_graph_attempts(graph_id, node_id, attempt_number);
 CREATE INDEX IF NOT EXISTS idx_graph_attempts_tenant_graph ON task_graph_attempts(tenant_id, graph_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_graph_attempts_node ON task_graph_attempts(graph_id, node_id, attempt_number);

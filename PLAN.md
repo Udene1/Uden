@@ -56,42 +56,36 @@ Shared TypeScript contracts for tasks, models, pricing, constants and task graph
 - [x] Aggregate graph result and root-task accounting.
 - [x] Authenticated graph execution endpoint.
 
-### Persistence/dashboard slice completed in latest work
-- [x] D1 migration for `task_graphs`, `task_graph_nodes` and `task_graph_attempts`.
-- [x] Migration commands exposed in engine package scripts.
-- [x] Tenant-scoped persistence service for graph/node state and attempt history.
-- [x] Tenant-scoped graph listing/read/attempt endpoints.
-- [x] Dashboard `/graphs` page.
-- [x] Dashboard graph node/status/cost/token/detail visualization.
-- [x] Graph navigation added to the dashboard sidebar.
-- [x] Dashboard graph data client uses real API calls; no graph mock fallback.
+### True durable execution slice
+- [x] D1 graph/node/attempt persistence is wired into execution, not only written after completion.
+- [x] Node running/completed/failed/blocked transitions are persisted during execution.
+- [x] Primary and escalation attempt records capture model/provider/tokens/cost/quality/timestamps/errors.
+- [x] Execution ownership lease and expiry protection added.
+- [x] Persisted resume endpoint added; completed nodes are preserved while incomplete nodes are retried.
+- [x] Attempt identity is idempotent at the graph-attempt table level.
+- [x] Usage-record writes now support stable identities, but graph execution still needs to pass the stable usage ID on every provider attempt before accounting idempotency is considered complete.
+- [x] Base schema and migrations are aligned; migration `0003_graph_durable_execution.sql` adds ownership/lease fields and the unique attempt identity.
 
-## Known gap — next engineering target
-
-The persistence schema and read layer exist, but the current graph executor still completes its in-memory execution before the route persists the final graph. Therefore **mid-execution crash recovery is not yet complete**, and attempt history is not yet populated by the executor itself on every attempt.
-
-This is intentional technical debt to resolve before claiming durable execution complete.
-
-## Next milestone: true durable execution
-
-1. Wire persistence directly into the graph executor so graph creation, node transitions and every model attempt are written as execution proceeds.
-2. Record primary and escalation attempts with exact model, provider, token counts, cost, quality, timestamps and error state.
-3. Make graph/node writes idempotent so a Worker retry cannot double-bill a completed attempt.
-4. Add execution version / ownership or equivalent concurrency protection.
-5. Implement resume/retry from persisted state, continuing only unfinished nodes and preserving completed outputs.
-6. Ensure failed/blocked/running states survive Worker/request termination.
-7. Add tests for crash/resume, duplicate retry and tenant isolation.
-
-## Then: dashboard graph maturity
-
+### Dashboard graph maturity
 - [x] Basic real graph visualization and node inspection.
 - [ ] Render actual dependency edges/layout rather than only ordered node cards.
-- [ ] Show attempt history from `task_graph_attempts`.
+- [x] Show attempt history from `task_graph_attempts`.
 - [ ] Show execution timeline and latency from persisted timestamps.
-- [ ] Show escalation chain and why escalation occurred.
-- [ ] Show blocked-node dependency explanation.
+- [x] Show escalation reason in persisted attempt history.
+- [x] Show blocked-node dependency explanation in node state.
 - [ ] Add graph-level refresh/live execution state where architecture permits.
-- [ ] Keep existing dashboard visual language; do not redesign unrelated surfaces.
+
+### Verification / CI
+- [x] GitHub Actions CI workflow added for `npm ci`, workspace build and tests.
+- [ ] First CI run must be observed and failures fixed rather than assumed green.
+- [ ] Real D1 integration tests for persistence/resume.
+
+## Known gaps — next engineering targets
+
+1. Pass a stable usage-record ID derived from `(graphId,nodeId,attemptNumber)` into `recordUsage` so a Worker retry cannot duplicate accounting for the same persisted attempt.
+2. Add real D1 integration tests for graph creation, transitions, attempt upserts, resume and tenant isolation.
+3. Improve graph visualization with dependency edges/layout and persisted execution timeline.
+4. Add refresh/live state and explicit resume/retry controls in the dashboard.
 
 ## Reliability/security
 
@@ -138,7 +132,7 @@ All analytics must originate from recorded execution data.
 
 ## Anti-drift order
 
-**True durable execution → dashboard graph maturity → reliability/security → permissions → analytics → production hardening.**
+**Finish durable accounting + real D1 verification → dashboard graph maturity → reliability/security → permissions → analytics → production hardening.**
 
 Do not jump ahead unless a concrete dependency requires it.
 
@@ -148,4 +142,4 @@ A milestone is done only when it is integrated into the real architecture, prese
 
 ## Immediate next action
 
-**Wire `graph-executor.ts` directly to the persistence service, make attempt/state writes durable and idempotent, implement persisted resume/retry, then verify with real tests before further dashboard polish.**
+**Finish stable usage IDs in graph execution, add real D1 integration tests for persistence/resume/tenant isolation, then complete dependency-edge/timeline dashboard work before moving into broader reliability/security.**

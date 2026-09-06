@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "test:record": "node scripts/record_tests.mjs",
     "db:migrate:local": "wrangler d1 execute DB --local --file=src/db/schema.sql",
-    "db:migrate:remote": "wrangler d1 execute DB --remote --file=src/db/schema.sql"
+    "db:migrate:graph:local": "wrangler d1 execute DB --local --file=migrations/0002_task_graph_persistence.sql",
+    "db:migrate:remote": "wrangler d1 execute DB --remote --file=src/db/schema.sql",
+    "db:migrate:graph:remote": "wrangler d1 execute DB --remote --file=migrations/0002_task_graph_persistence.sql"
   },
   "dependencies": {
     "hono": "^4.0.0",

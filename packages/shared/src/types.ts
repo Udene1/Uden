@@ -19,6 +19,7 @@ export type TaskStatus =
   | 'completed'
   | 'failed'
   | 'awaiting-approval'
+  | 'requires_approval'
   | 'approved'
   | 'rejected';
 
@@ -131,7 +132,7 @@ export interface TaskProposal {
 // ─────────────────────────────────────────────
 
 export interface TaskClassification {
-  complexity: number;      // 1–10
+  complexity: number;
   domain: TaskDomain;
   recommendedTier: ModelTier;
   expectedFormat: OutputFormat;
@@ -158,13 +159,13 @@ export interface RoutingPlan {
 export interface QualityCheckResult {
   name: string;
   passed: boolean;
-  score: number;          // 0–100
+  score: number;
   severity: CheckSeverity;
   reason: string;
 }
 
 export interface QualityReport {
-  overallScore: number;   // 0–100
+  overallScore: number;
   passed: boolean;
   checks: QualityCheckResult[];
   shouldEscalate: boolean;
@@ -235,17 +236,12 @@ export interface ModelConfig {
   provider: AIProvider;
   displayName: string;
   tier: ModelTier;
-  /** Cost per million input tokens in cents */
   inputCostPerMillion: number;
-  /** Cost per million output tokens in cents */
   outputCostPerMillion: number;
   maxInputTokens: number;
   maxOutputTokens: number;
-  /** What this model excels at */
   strengths: TaskDomain[];
-  /** Whether this model supports streaming */
   supportsStreaming: boolean;
-  /** Whether this model is currently enabled */
   enabled: boolean;
 }
 

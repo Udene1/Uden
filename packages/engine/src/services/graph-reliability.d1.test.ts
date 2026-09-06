@@ -14,7 +14,7 @@ describe('graph reliability D1 integration', () => {
   const env = {} as any;
 
   beforeAll(async () => {
-    const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'wrangler.jsonc'), persist: false, remoteBindings: false });
+    const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'wrangler.jsonc'), persist: false });
     db = platform.env.DB as D1Database;
     env.DB = db;
     dispose = platform.dispose;

@@ -15,6 +15,7 @@ class ApiClient {
  async getAnalytics(apiKey?:string):Promise<AnalyticsResponse>{return this.fetcher('/usage/analytics',{},apiKey);}
  async getTasks(apiKey?:string,filters?:{status?:string}):Promise<{data:Task[],total:number}>{const qs=filters?.status?`?status=${encodeURIComponent(filters.status)}`:'';const result=await this.fetcher<{tasks:Task[]}>('/tasks'+qs,{},apiKey);return {data:result.tasks||[],total:(result.tasks||[]).length};}
  async getTask(id:string,apiKey?:string):Promise<Task>{const result=await this.fetcher<{task:Task}>(`/tasks/${id}`,{},apiKey);return result.task;}
+ async approveTask(id:string,options?:{primaryModel?:string;fallbackChain?:string[];expectedFormat?:string},apiKey?:string):Promise<Task>{return this.fetcher<Task>(`/tasks/${id}/approve`,{method:'POST',body:JSON.stringify(options||{})},apiKey);}
  async createTask(prompt:string,mode?:TaskMode,projectId?:string,apiKey?:string):Promise<Task>{return this.fetcher('/tasks',{method:'POST',body:JSON.stringify({prompt,mode,projectId})},apiKey);}
 }
 export const api=new ApiClient();

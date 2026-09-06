@@ -3,6 +3,7 @@ import { HonoEnv } from '../types';
 import { executeTask, runTaskExecution } from '../services/executor';
 import { createTaskGraph, decomposeTask } from '../services/task-graph';
 import { executeTaskGraph, resumeTaskGraph } from '../services/graph-executor';
+import { prepareBackgroundGraph, backgroundQueueMessage } from '../services/background-graph';
 import { getPersistedGraph, listPersistedGraphs, listGraphAttempts } from '../services/graph-persistence';
 import { listTasks, getTask, updateTask } from '../db/queries';
 
@@ -62,9 +63,26 @@ taskRoutes.post('/graph/execute', async c => {
     if (validation) return c.json({ error: validation }, 400);
     return c.json(await executeTaskGraph(c.env, t, plan, b.projectId), 200);
   } catch (e: any) {
-    if (e.message === 'Budget exceeded') return c.json({ error: e.message }, 402);
+    if (e.message === 'Budget exhausted before node execution') return c.json({ error: e.message }, 402);
     if (String(e.message).startsWith('Invalid graph:')) return c.json({ error: e.message }, 400);
     return c.json({ error: e.message || 'Graph execution failed' }, 500);
+  }
+});
+
+taskRoutes.post('/graph/execute/background', async c => {
+  const b = await c.req.json().catch(() => ({}));
+  if (!c.env.TASK_GRAPH_QUEUE) return c.json({ error: 'Background execution is not configured' }, 503);
+  if (b.plan !== undefined && (!b.plan || typeof b.plan !== 'object')) return c.json({ error: 'plan must be an object when supplied' }, 400);
+  if (!b.prompt && !b.plan) return c.json({ error: 'Prompt or plan is required' }, 400);
+  try {
+    const plan = b.plan || decomposeTask(String(b.prompt).trim());
+    const validation = validateGraphInput(plan);
+    if (validation) return c.json({ error: validation }, 400);
+    const prepared = await prepareBackgroundGraph(c.env, c.get('tenantId'), plan, b.projectId);
+    await c.env.TASK_GRAPH_QUEUE.send(backgroundQueueMessage(c.get('tenantId'), prepared.graphId), { contentType: 'json' });
+    return c.json({ accepted: true, graphId: prepared.graphId, status: 'queued' }, 202);
+  } catch (e: any) {
+    return c.json({ error: e.message || 'Background graph submission failed' }, 500);
   }
 });
 

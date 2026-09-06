@@ -14,9 +14,11 @@
     "db:migrate:local": "wrangler d1 execute DB --local --file=src/db/schema.sql",
     "db:migrate:graph:local": "wrangler d1 execute DB --local --file=migrations/0002_task_graph_persistence.sql",
     "db:migrate:graph:durable:local": "wrangler d1 execute DB --local --file=migrations/0003_graph_durable_execution.sql",
+    "db:migrate:budget:local": "wrangler d1 execute DB --local --file=migrations/0004_budget_reservations.sql",
     "db:migrate:remote": "wrangler d1 execute DB --remote --file=src/db/schema.sql",
     "db:migrate:graph:remote": "wrangler d1 execute DB --remote --file=migrations/0002_task_graph_persistence.sql",
-    "db:migrate:graph:durable:remote": "wrangler d1 execute DB --remote --file=migrations/0003_graph_durable_execution.sql"
+    "db:migrate:graph:durable:remote": "wrangler d1 execute DB --remote --file=migrations/0003_graph_durable_execution.sql",
+    "db:migrate:budget:remote": "wrangler d1 execute DB --remote --file=migrations/0004_budget_reservations.sql"
   },
   "dependencies": {
     "hono": "^4.0.0",

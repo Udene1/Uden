@@ -16,5 +16,21 @@
       "binding": "CACHE_KV",
       "id": "00000000-0000-0000-0000-000000000000"
     }
-  ]
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "TASK_GRAPH_QUEUE", "queue": "uden-task-graphs" }
+    ],
+    "consumers": [
+      {
+        "queue": "uden-task-graphs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 8,
+        "retry_delay": 30,
+        "dead_letter_queue": "uden-task-graphs-dlq",
+        "max_concurrency": 5
+      }
+    ]
+  }
 }

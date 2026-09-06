@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HonoEnv } from '../types';
 import { executeTask, runTaskExecution } from '../services/executor';
 import { createTaskGraph, decomposeTask } from '../services/task-graph';
+import { executeTaskGraph } from '../services/graph-executor';
 import { listTasks, getTask, updateTask } from '../db/queries';
 
 export const taskRoutes = new Hono<HonoEnv>();
@@ -28,8 +29,6 @@ taskRoutes.post('/', async (c) => {
 
 /**
  * Preview the work graph without spending model credits or mutating task state.
- * This gives the dashboard/client a safe way to inspect decomposition before
- * graph execution is wired into the executor.
  */
 taskRoutes.post('/plan', async (c) => {
   const body = await c.req.json().catch(() => ({}));
@@ -42,6 +41,38 @@ taskRoutes.post('/plan', async (c) => {
   const graph = createTaskGraph(crypto.randomUUID(), plan);
 
   return c.json({ plan, graph }, 200);
+});
+
+/**
+ * Execute a real task graph. If a plan is supplied it is validated and executed;
+ * otherwise the original prompt is deterministically decomposed first.
+ */
+taskRoutes.post('/graph/execute', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const tenantId = c.get('tenantId');
+
+  if (body.plan !== undefined && (!body.plan || typeof body.plan !== 'object')) {
+    return c.json({ error: 'plan must be an object when supplied' }, 400);
+  }
+  if (!body.prompt && !body.plan) {
+    return c.json({ error: 'Prompt or plan is required' }, 400);
+  }
+
+  try {
+    const plan = body.plan || decomposeTask(String(body.prompt).trim());
+    if (!plan.goal || !Array.isArray(plan.nodes)) {
+      return c.json({ error: 'Invalid task graph plan' }, 400);
+    }
+
+    const result = await executeTaskGraph(c.env, tenantId, plan, body.projectId);
+    return c.json(result, result.status === 'completed' ? 200 : 207);
+  } catch (err: any) {
+    if (err.message === 'Budget exceeded') return c.json({ error: err.message }, 402);
+    if (String(err.message).startsWith('Invalid graph:')) {
+      return c.json({ error: err.message }, 400);
+    }
+    return c.json({ error: err.message || 'Graph execution failed' }, 500);
+  }
 });
 
 taskRoutes.get('/', async (c) => {

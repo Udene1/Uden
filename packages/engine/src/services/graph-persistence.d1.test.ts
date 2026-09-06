@@ -6,16 +6,20 @@ import { resolve } from 'node:path';
 import { persistGraph, getPersistedGraph, listGraphAttempts, recordGraphAttempt, acquireGraphExecutionLease } from './graph-persistence';
 import type { TaskGraph } from '@ai-work-partner/shared';
 
+const execSqlFile = async (db: D1Database, path: string) => {
+  const sql = await readFile(path, 'utf8').then(text => text.replace(/^\s*--.*$/gm, '').trim());
+  await db.exec(sql);
+};
+
 describe('graph persistence D1 integration', () => {
   let db: D1Database;
   let dispose: (() => Promise<void>) | undefined;
   beforeAll(async () => {
     const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'wrangler.jsonc'), persist: false });
     db = platform.env.DB as D1Database; dispose = platform.dispose;
-    const schema = await readFile(resolve(process.cwd(), 'src/db/schema.sql'), 'utf8');
-    const durableMigration = await readFile(resolve(process.cwd(), 'migrations/0003_graph_durable_execution.sql'), 'utf8');
-    const permissionsMigration = await readFile(resolve(process.cwd(), 'migrations/0005_permissions_audit.sql'), 'utf8');
-    await db.exec(schema); await db.exec(durableMigration); await db.exec(permissionsMigration);
+    await execSqlFile(db, resolve(process.cwd(), 'src/db/schema.sql'));
+    await execSqlFile(db, resolve(process.cwd(), 'migrations/0003_graph_durable_execution.sql'));
+    await execSqlFile(db, resolve(process.cwd(), 'migrations/0005_permissions_audit.sql'));
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-a','Tenant A','a@example.test','hash-a').run();
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-b','Tenant B','b@example.test','hash-b').run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('root-a','tenant-a','integration graph','processing').run();

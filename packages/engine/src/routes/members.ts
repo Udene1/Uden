@@ -1,0 +1,6 @@
+import { Hono } from 'hono';
+import type { HonoEnv } from '../types';
+import { requirePermission, writeAudit } from '../services/permissions';
+export const memberRoutes = new Hono<HonoEnv>();
+memberRoutes.get('/',async c=>{const t=c.get('tenantId');await requirePermission(c.env.DB,t,'settings:write');const r=await c.env.DB.prepare(`SELECT id,subject,role,created_at,updated_at FROM tenant_members WHERE tenant_id=? ORDER BY created_at`).bind(t).all();return c.json({members:r.results||[]});});
+memberRoutes.put('/:subject',async c=>{const t=c.get('tenantId');await requirePermission(c.env.DB,t,'settings:write');const subject=decodeURIComponent(c.req.param('subject'));const body=await c.req.json().catch(()=>({}));const role=body.role;if(!['owner','admin','member','viewer'].includes(role))return c.json({error:'Invalid role'},400);await c.env.DB.prepare(`INSERT INTO tenant_members(id,tenant_id,subject,role) VALUES(?,?,?,?) ON CONFLICT(tenant_id,subject) DO UPDATE SET role=excluded.role,updated_at=CURRENT_TIMESTAMP`).bind(crypto.randomUUID(),t,subject,role).run();await writeAudit(c.env.DB,t,'member.role_update','tenant_member',subject,undefined,c.get('requestId'),{role});return c.json({success:true,subject,role});});

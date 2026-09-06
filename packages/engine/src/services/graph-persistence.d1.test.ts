@@ -7,8 +7,16 @@ import { persistGraph, getPersistedGraph, listGraphAttempts, recordGraphAttempt,
 import type { TaskGraph } from '@ai-work-partner/shared';
 
 const execSqlFile = async (db: D1Database, path: string) => {
-  const sql = await readFile(path, 'utf8').then(text => text.replace(/^\s*--.*$/gm, '').trim());
-  await db.exec(sql);
+  const sql = await readFile(path, 'utf8');
+  const statements = sql
+    .replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '')
+    .split(';')
+    .map(statement => statement.trim())
+    .filter(Boolean);
+
+  for (const statement of statements) {
+    await db.prepare(statement).run();
+  }
 };
 
 describe('graph persistence D1 integration', () => {

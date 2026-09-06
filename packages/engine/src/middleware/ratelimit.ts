@@ -1,26 +1,23 @@
 import { Context, Next } from 'hono';
 
-const rateLimitMap = new Map<string, { count: number; timestamp: number }>();
+const WINDOW_SECONDS = 60;
+const MAX_REQUESTS = 100;
 
 export async function ratelimit(c: Context, next: Next) {
   const tenantId = c.get('tenantId');
   if (!tenantId) return await next();
 
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-  const maxRequests = 100;
+  // KV gives the limit a Worker-wide/shared backing instead of an isolate-local Map.
+  // It is intentionally a fixed-window limiter; the authoritative spend/budget checks
+  // remain in the execution path.
+  const kv = c.env?.CACHE_KV as KVNamespace | undefined;
+  if (!kv) return await next();
 
-  let record = rateLimitMap.get(tenantId);
-  if (!record || now - record.timestamp > windowMs) {
-    record = { count: 0, timestamp: now };
-  }
+  const bucket = Math.floor(Date.now() / (WINDOW_SECONDS * 1000));
+  const key = `ratelimit:${tenantId}:${bucket}`;
+  const current = Number(await kv.get(key) || '0');
+  if (current >= MAX_REQUESTS) return c.json({ error: 'Rate limit exceeded' }, 429);
 
-  record.count++;
-  rateLimitMap.set(tenantId, record);
-
-  if (record.count > maxRequests) {
-    return c.json({ error: 'Rate limit exceeded' }, 429);
-  }
-
+  await kv.put(key, String(current + 1), { expirationTtl: WINDOW_SECONDS + 5 });
   await next();
 }

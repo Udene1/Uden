@@ -10,7 +10,7 @@ describe('graph persistence D1 integration', () => {
   let db: D1Database;
   let dispose: (() => Promise<void>) | undefined;
   beforeAll(async () => {
-    const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'wrangler.jsonc'), persist: false, remoteBindings: false });
+    const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'wrangler.jsonc'), persist: false });
     db = platform.env.DB as D1Database; dispose = platform.dispose;
     const schema = await readFile(resolve(process.cwd(), 'src/db/schema.sql'), 'utf8');
     const durableMigration = await readFile(resolve(process.cwd(), 'migrations/0003_graph_durable_execution.sql'), 'utf8');

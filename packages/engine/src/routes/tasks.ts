@@ -7,6 +7,32 @@ import { getPersistedGraph, listPersistedGraphs, listGraphAttempts } from '../se
 import { listTasks, getTask, updateTask } from '../db/queries';
 
 export const taskRoutes = new Hono<HonoEnv>();
+const MAX_GRAPH_NODES = 100;
+const MAX_GRAPH_GOAL = 20_000;
+const MAX_NODE_PROMPT = 50_000;
+const MAX_GRAPH_PAYLOAD = 500_000;
+
+function validateGraphInput(plan: any): string | null {
+  if (!plan || typeof plan !== 'object' || typeof plan.goal !== 'string' || !Array.isArray(plan.nodes)) return 'Invalid task graph plan';
+  if (!plan.goal.trim() || plan.goal.length > MAX_GRAPH_GOAL) return `Graph goal must be 1-${MAX_GRAPH_GOAL} characters`;
+  if (plan.nodes.length === 0 || plan.nodes.length > MAX_GRAPH_NODES) return `Graph must contain 1-${MAX_GRAPH_NODES} nodes`;
+  let size = 0;
+  for (const node of plan.nodes) {
+    if (!node || typeof node !== 'object' || typeof node.id !== 'string' || typeof node.prompt !== 'string') return 'Each graph node must have an id and prompt';
+    if (node.id.length > 200) return 'Graph node id is too long';
+    if (node.prompt.length > MAX_NODE_PROMPT) return `Each node prompt must be at most ${MAX_NODE_PROMPT} characters`;
+    if (!Array.isArray(node.dependencies) || !Array.isArray(node.contextFrom)) return `Node '${node.id}' has invalid dependency/context lists`;
+    if (node.dependencies.length > MAX_GRAPH_NODES || node.contextFrom.length > MAX_GRAPH_NODES) return `Node '${node.id}' has too many relationships`;
+    size += node.prompt.length + node.id.length + JSON.stringify(node.dependencies).length + JSON.stringify(node.contextFrom).length;
+    if (size > MAX_GRAPH_PAYLOAD) return `Graph payload exceeds ${MAX_GRAPH_PAYLOAD} characters`;
+  }
+  return null;
+}
+
+function boundedInt(value: string | undefined, fallback: number, max: number) {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(0, parsed)) : fallback;
+}
 
 taskRoutes.post('/', async c => {
   const b = await c.req.json().catch(() => ({}));
@@ -18,8 +44,10 @@ taskRoutes.post('/', async c => {
 
 taskRoutes.post('/plan', async c => {
   const b = await c.req.json().catch(() => ({}));
-  if (!b.prompt || typeof b.prompt !== 'string' || !b.prompt.trim()) return c.json({ error: 'Prompt is required and must be a non-empty string' }, 400);
+  if (!b.prompt || typeof b.prompt !== 'string' || !b.prompt.trim() || b.prompt.length > MAX_GRAPH_GOAL) return c.json({ error: `Prompt is required and must be at most ${MAX_GRAPH_GOAL} characters` }, 400);
   const plan = decomposeTask(b.prompt.trim());
+  const validation = validateGraphInput(plan);
+  if (validation) return c.json({ error: validation }, 400);
   return c.json({ plan, graph: createTaskGraph(crypto.randomUUID(), plan) }, 200);
 });
 
@@ -30,7 +58,8 @@ taskRoutes.post('/graph/execute', async c => {
   if (!b.prompt && !b.plan) return c.json({ error: 'Prompt or plan is required' }, 400);
   try {
     const plan = b.plan || decomposeTask(String(b.prompt).trim());
-    if (!plan.goal || !Array.isArray(plan.nodes)) return c.json({ error: 'Invalid task graph plan' }, 400);
+    const validation = validateGraphInput(plan);
+    if (validation) return c.json({ error: validation }, 400);
     return c.json(await executeTaskGraph(c.env, t, plan, b.projectId), 200);
   } catch (e: any) {
     if (e.message === 'Budget exceeded') return c.json({ error: e.message }, 402);
@@ -50,8 +79,8 @@ taskRoutes.post('/graph/:id/resume', async c => {
 
 taskRoutes.get('/graphs', async c => {
   const t = c.get('tenantId');
-  const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') || 50)));
-  const offset = Math.max(0, Number(c.req.query('offset') || 0));
+  const limit = boundedInt(c.req.query('limit'), 50, 100) || 1;
+  const offset = boundedInt(c.req.query('offset'), 0, 1_000_000);
   return c.json({ graphs: await listPersistedGraphs(c.env.DB, t, limit, offset) }, 200);
 });
 
@@ -64,8 +93,8 @@ taskRoutes.get('/graph/:id/attempts', async c => c.json({ attempts: await listGr
 
 taskRoutes.get('/', async c => {
   const t = c.get('tenantId');
-  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
-  const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10));
+  const limit = boundedInt(c.req.query('limit'), 50, 100) || 1;
+  const offset = boundedInt(c.req.query('offset'), 0, 1_000_000);
   return c.json({ tasks: await listTasks(c.env.DB, t, limit, offset) });
 });
 

@@ -8,6 +8,11 @@ import { blockDependents, getReadyGraphNodes, resumeTaskGraph } from './graph-ex
 import { persistGraph, getPersistedGraph } from './graph-persistence';
 import type { TaskGraph } from '@ai-work-partner/shared';
 
+const execSqlFile = async (db: D1Database, path: string) => {
+  const sql = await readFile(path, 'utf8').then(text => text.replace(/^\s*--.*$/gm, '').trim());
+  await db.exec(sql);
+};
+
 describe('graph reliability D1 integration', () => {
   let db: D1Database;
   let dispose: (() => Promise<void>) | undefined;
@@ -18,9 +23,9 @@ describe('graph reliability D1 integration', () => {
     db = platform.env.DB as D1Database;
     env.DB = db;
     dispose = platform.dispose;
-    await db.exec(await readFile(resolve(process.cwd(), 'src/db/schema.sql'), 'utf8'));
-    await db.exec(await readFile(resolve(process.cwd(), 'migrations/0003_graph_durable_execution.sql'), 'utf8'));
-    await db.exec(await readFile(resolve(process.cwd(), 'migrations/0004_budget_reservations.sql'), 'utf8'));
+    await execSqlFile(db, resolve(process.cwd(), 'src/db/schema.sql'));
+    await execSqlFile(db, resolve(process.cwd(), 'migrations/0003_graph_durable_execution.sql'));
+    await execSqlFile(db, resolve(process.cwd(), 'migrations/0004_budget_reservations.sql'));
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant','Reliability','r@example.test','reliability-hash',10).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','recovery test','processing').run();
   });

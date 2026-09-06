@@ -1,6 +1,6 @@
 # Uden — Implementation Plan & Project Guardrail
 
-> **Source of truth.** This file records the actual repository state and the build order. Future sessions must inspect it and recent commits before changing direction.
+> **Source of truth.** This file records the actual repository state and build order. Future sessions must inspect it and recent commits before changing direction.
 
 ## Product vision
 
@@ -60,10 +60,10 @@ Shared TypeScript contracts for tasks, models, pricing, constants and task graph
 - [x] GitHub Actions CI workflow.
 - [x] Real D1/workerd integration coverage for persistence, tenant isolation, idempotent attempts/usage and leases.
 - [x] Reliability coverage for multi-node dependency blocking, budget reservation exhaustion/release and persisted crash recovery.
-- [ ] First CI run must be observed and failures fixed rather than assumed green.
+- [ ] Final CI run must be observed green after the final production-hardening commits.
 - [ ] First real end-to-end provider execution test using the repository's real integration/recording strategy.
 
-## Reliability/security — completed slice
+## Reliability/security
 - [x] Input/context limits and graph pagination bounds.
 - [x] Tenant-scoped graph reads/writes/attempt reads.
 - [x] KV-backed graph rate limiting.
@@ -74,31 +74,34 @@ Shared TypeScript contracts for tasks, models, pricing, constants and task graph
 - [x] Real multi-node dependency/failure-blocking and budget exhaustion tests.
 - [x] Persisted crash/resume verification without provider mocks.
 
-## Observability — completed slice
+## Observability
 - [x] Structured request/queue logging with request IDs and latency.
 - [x] Secret/prompt-key redaction in operational logs.
 - [x] Safe API error surfaces that do not expose raw provider failures.
 - [x] Audit trail for graph execution, queue submission, graph resume and tenant settings changes.
-- [ ] External alerting/metrics sink and SLO dashboards.
+- [x] Cloudflare Workers Logs/Traces enabled in Wrangler.
+- [x] External webhook alerting for Worker 5xx/uncaught errors and queue failures.
+- [ ] Production alert destination secret/configuration must be supplied before deployment.
 
-## Permissions / human-in-the-loop — active
+## Permissions / human-in-the-loop
 - [x] Tenant roles: owner/admin/member/viewer.
 - [x] Permission checks for graph execute/resume/read and settings/audit access.
 - [x] Tenant member role management with audit trail.
 - [x] Authorization on graph mutation/resume paths.
-- [ ] Graph-level cost/risk proposal before spend where required.
-- [ ] Approval/rejection preserving approved routing.
-- [ ] Sensitive/high-risk node approval gates.
+- [x] High-risk graph pre-spend approval gate with explicit reasons and audit event.
+- [x] `/plan` exposes approval requirements before execution.
+- [x] Permission-based task approval now authorizes before state mutation.
+- [ ] Durable approval request records and rejection workflow.
 - [ ] Per-user/API-key identity instead of the current tenant API-key subject fallback.
 
-## Analytics — completed initial layer
+## Analytics
 - [x] Cost/quality/failure metrics by graph, node domain and model.
 - [x] Escalation rate and escalated quality.
 - [x] Recent graph execution economics and latency source data.
 - [x] Actual versus primary-attempt cost data.
+- [x] Dashboard analytics UI wired to the real analytics endpoint; fake analytics data removed.
 - [ ] True estimated-versus-actual cost comparison persisted at plan time.
 - [ ] Quantified routing savings baseline based on recorded alternative-model pricing.
-- [ ] Dashboard analytics UI wired to the real analytics endpoint.
 - [ ] Time-series and operational alert views.
 
 All analytics must originate from recorded execution data.
@@ -109,7 +112,7 @@ All analytics must originate from recorded execution data.
 - [x] Atomic budget reservation.
 - [x] Durable long-running job execution outside one Worker request.
 - [x] Retry/backoff policy for transient provider failures.
-- [ ] External observability/alerts.
+- [x] External observability/alerts wired.
 - [ ] Final typecheck/build/test/deployment verification.
 
 ## Anti-drift order
@@ -119,4 +122,4 @@ All analytics must originate from recorded execution data.
 A milestone is done only when integrated into the real architecture, preserves existing behavior, has appropriate tests, keeps real integrations intact, is verified as far as the environment permits, is committed clearly, and this plan is updated.
 
 ## Immediate next action
-**Finish permission human-in-the-loop gates and wire the analytics endpoint into the dashboard, then production hardening and full CI verification.**
+**Observe the final CI run, fix any failures, run the full verification suite, then perform deployment/configuration readiness checks.**

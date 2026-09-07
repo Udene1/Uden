@@ -186,7 +186,7 @@ export async function executeTaskGraph(env: HonoEnv['Bindings'], tenantId: strin
   if (!(await acquireGraphExecutionLease(env.DB, tenantId, graph.id, owner))) throw new Error('Graph execution lease could not be acquired');
   try {
     const result = await executeGraphState(env, tenantId, graph, qualityPreference, owner);
-    await updateTask(env.DB, rootTask.id, tenantId, { status: result.status === 'completed' ? 'completed' : 'failed', output: result.output, totalCostCents: result.totalCostCents, tokensIn: result.tokensIn, tokensOut: result.tokensOut, escalationCount: graph.nodes.reduce((count, node) => count + Math.max(0, node.attemptedModels.length - 1), 0), completedAt: result.status === 'completed' ? new Date().toISOString() : undefined });
+    await updateTask(env.DB, rootTask.id, tenantId, { status: result.status === 'completed' ? 'completed' : 'failed', output: result.output, totalCostCents: result.totalCostCents, tokensIn: result.tokensIn, tokensOut: result.tokensOut, escalationCount: graph.nodes.reduce((count, node) => count + Math.max(0, node.attemptedModels.length - 1), 0), ...(result.status === 'completed' ? { completedAt: new Date().toISOString() } : {}) });
     return result;
   } catch (error) {
     const safe = sanitizeProviderError('graph', error);
@@ -208,7 +208,7 @@ export async function resumeTaskGraph(env: HonoEnv['Bindings'], tenantId: string
   await persistGraphSnapshot(env.DB, tenantId, graph, 'running', null, null, { owner });
   try {
     const result = await executeGraphState(env, tenantId, graph, qualityPreference, owner);
-    await updateTask(env.DB, graph.rootTaskId, tenantId, { status: result.status === 'completed' ? 'completed' : 'failed', output: result.output, totalCostCents: result.totalCostCents, tokensIn: result.tokensIn, tokensOut: result.tokensOut, escalationCount: graph.nodes.reduce((count, node) => count + Math.max(0, node.attemptedModels.length - 1), 0), completedAt: result.status === 'completed' ? new Date().toISOString() : undefined });
+    await updateTask(env.DB, graph.rootTaskId, tenantId, { status: result.status === 'completed' ? 'completed' : 'failed', output: result.output, totalCostCents: result.totalCostCents, tokensIn: result.tokensIn, tokensOut: result.tokensOut, escalationCount: graph.nodes.reduce((count, node) => count + Math.max(0, node.attemptedModels.length - 1), 0), ...(result.status === 'completed' ? { completedAt: new Date().toISOString() } : {}) });
     return result;
   } catch (error) {
     const safe = sanitizeProviderError('graph', error);

@@ -16,9 +16,10 @@ const execSqlFile = async (db: D1Database, path: string) => {
 
 describe('autonomous objectives D1 integration', () => {
   let db: D1Database; let dispose: (() => Promise<void>) | undefined;
+  const env = {} as any;
   beforeAll(async () => {
     const platform = await getPlatformProxy({ configPath: resolve(root, 'wrangler.jsonc'), persist: false });
-    db = platform.env.DB as D1Database; dispose = platform.dispose;
+    db = platform.env.DB as D1Database; env.DB = db; dispose = platform.dispose;
     await execSqlFile(db, resolve(here, '../db/schema.sql'));
     await execSqlFile(db, resolve(root, 'migrations/0012_autonomous_objectives.sql'));
     await db.prepare('INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)').bind('objective-tenant','Objective Tenant','objective@example.test','objective-hash').run();
@@ -28,14 +29,14 @@ describe('autonomous objectives D1 integration', () => {
   it('persists an objective and claims it exactly once when due', async () => {
     const plan: TaskGraphPlan = { goal: 'collect daily competitor prices', nodes: [{ id: 'collect', title: 'Collect prices', prompt: 'Collect prices', domain: 'research', complexity: 2, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [] }] };
     const now = new Date('2026-09-07T03:00:00.000Z');
-    const objective = await createAutonomousObjective(db as any, 'objective-tenant', { name: 'Price monitor', objective: 'Collect competitor prices', plan, permissions: ['project:execute'], resources: ['web'], successCriteria: 'At least one verified price', intervalSeconds: 3600, nextRunAt: '2026-09-07T02:59:00.000Z' });
+    const objective = await createAutonomousObjective(env, 'objective-tenant', { name: 'Price monitor', objective: 'Collect competitor prices', plan, permissions: ['project:execute'], resources: ['web'], successCriteria: 'At least one verified price', intervalSeconds: 3600, nextRunAt: '2026-09-07T02:59:00.000Z' });
     expect(objective.enabled).toBe(true);
-    const claimed = await claimDueObjectives(db as any, now);
+    const claimed = await claimDueObjectives(env, now);
     expect(claimed).toHaveLength(1);
     expect(claimed[0].run.status).toBe('queued');
     expect(claimed[0].objective.nextRunAt).toBe('2026-09-07T04:00:00.000Z');
-    expect(await claimDueObjectives(db as any, now)).toHaveLength(0);
-    await markObjectiveRun(db as any, 'objective-tenant', claimed[0].run.id, 'completed', { graphId: 'graph-1' });
+    expect(await claimDueObjectives(env, now)).toHaveLength(0);
+    await markObjectiveRun(env, 'objective-tenant', claimed[0].run.id, 'completed', { graphId: 'graph-1' });
     const row = await db.prepare('SELECT status,graph_id,completed_at FROM autonomous_objective_runs WHERE id=?').bind(claimed[0].run.id).first<any>();
     expect(row?.status).toBe('completed');
     expect(row?.graph_id).toBe('graph-1');

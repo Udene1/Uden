@@ -1,0 +1,38 @@
+name: One-shot repair wiring
+on:
+  push:
+    paths:
+      - '.github/workflows/one-shot-repair-wiring.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: "!contains(github.event.head_commit.message, '[repair-wiring]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch executor
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('packages/engine/src/services/graph-executor.ts')
+          s=p.read_text()
+          s=s.replace("import { verifyRuntimeResult } from './graph-verification';", "import { verifyRuntimeResult } from './graph-verification';\nimport { canRepair } from './graph-repair';\nimport { proposeGraphRepair } from './graph-repair-proposals';")
+          old="await executeNode(env, graph, node, tenantId, qualityPreference, budgetLeft, persist); if (node.status === 'completed') executionOrder.push(node.id); blockDependents(graph); await persist('running');"
+          new="await executeNode(env, graph, node, tenantId, qualityPreference, budgetLeft, persist); if (node.status === 'failed' && canRepair(node) && graph.projectId) { try { await proposeGraphRepair(env, tenantId, graph, node); } catch (repairError) { node.repairError = repairError instanceof Error ? repairError.message : 'Repair proposal generation failed'; await persist('failed', node.repairError); } } if (node.status === 'completed') executionOrder.push(node.id); blockDependents(graph); await persist(node.status === 'awaiting-approval' ? 'awaiting-approval' : 'running');"
+          if old not in s: raise SystemExit('executor patch target not found')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/engine/src/services/graph-executor.ts
+          git commit -m 'feat: automatically propose bounded repairs [repair-wiring]'
+          git push
+      - name: Remove one-shot workflow
+        run: |
+          git rm .github/workflows/one-shot-repair-wiring.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: remove one-shot repair wiring workflow [repair-wiring]'
+          git push

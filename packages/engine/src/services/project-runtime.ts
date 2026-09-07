@@ -1,10 +1,12 @@
 import type { Env } from '../types';
+import { getSandbox } from '@cloudflare/sandbox';
 
 const MAX_FILE_BYTES = 500_000;
 const MAX_FILES = 200;
 const MAX_OUTPUT = 100_000;
 const MAX_SEARCH_RESULTS = 100;
 const MAX_SEARCH_QUERY = 200;
+const SANDBOX_ROOT = '/workspace/projects';
 
 export interface ProjectFile { path: string; content: string; version: number; contentSha256: string; }
 export type RuntimeStatus = 'queued' | 'running' | 'succeeded' | 'failed';
@@ -66,6 +68,45 @@ export async function upsertProjectFile(env: Env, tenantId: string, projectId: s
   return { path: safePath, content, version, contentSha256 };
 }
 
+function sandboxId(tenantId: string, projectId: string): string { return `uden-${tenantId}-${projectId}`.slice(0, 256); }
+function sandboxJobId(id: string, processId: string): string { return `sandbox:${encodeURIComponent(id)}:${encodeURIComponent(processId)}`; }
+function parseSandboxJobId(jobId: string): { id: string; processId: string } | null {
+  if (!jobId.startsWith('sandbox:')) return null;
+  const parts = jobId.split(':');
+  if (parts.length !== 3) return null;
+  return { id: decodeURIComponent(parts[1]), processId: decodeURIComponent(parts[2]) };
+}
+
+async function runInSandbox(env: Env, tenantId: string, projectId: string, command: string, files: ProjectFile[]): Promise<RuntimeResult> {
+  const id = sandboxId(tenantId, projectId);
+  const sandbox = getSandbox(env.Sandbox, id);
+  const root = `${SANDBOX_ROOT}/${projectId}`;
+  await sandbox.mkdir(root, { recursive: true });
+  for (const file of files) {
+    const safePath = validatePath(file.path);
+    const target = `${root}/${safePath}`;
+    const parent = target.slice(0, target.lastIndexOf('/')) || root;
+    await sandbox.mkdir(parent, { recursive: true });
+    await sandbox.writeFile(target, file.content);
+  }
+  const process = await sandbox.exec(['/bin/bash', '-lc', command], { cwd: root, timeout: 15 * 60 * 1000 });
+  return { jobId: sandboxJobId(id, process.id), status: 'running', output: `Sandbox process ${process.id} started` };
+}
+
+async function pollSandbox(env: Env, jobId: string): Promise<RuntimeResult> {
+  const parsed = parseSandboxJobId(jobId);
+  if (!parsed) throw new Error('Invalid sandbox runtime job id');
+  const sandbox = getSandbox(env.Sandbox, parsed.id);
+  const process = await sandbox.getProcess(parsed.processId);
+  if (!process) return { jobId, status: 'failed', output: 'Sandbox process is no longer available; the runtime container may have been replaced before completion.' };
+  const status = await process.status();
+  if (status.state === 'running') return { jobId, status: 'running', output: 'Sandbox process is still running' };
+  if (status.state === 'error') return { jobId, status: 'failed', output: status.error.message };
+  const output = await process.output({ encoding: 'utf8' });
+  const combined = `${output.stdout}${output.stderr ? `\n${output.stderr}` : ''}`.slice(0, MAX_OUTPUT);
+  return { jobId, status: output.exitCode === 0 && !output.timedOut ? 'succeeded' : 'failed', exitCode: output.exitCode, output: combined };
+}
+
 async function signedRequest(env: Env, method: 'GET' | 'POST', path: string, payload?: string): Promise<RuntimeResult> {
   const runtime = requireRuntime(env);
   const timestamp = String(Date.now());
@@ -76,9 +117,7 @@ async function signedRequest(env: Env, method: 'GET' | 'POST', path: string, pay
   const result = await response.json() as RuntimeResult;
   if (!result.jobId || !['queued','running','succeeded','failed'].includes(result.status)) throw new Error('Project runtime returned an invalid result');
   const output = result.output?.slice(0, MAX_OUTPUT);
-  if (result.status === 'succeeded' && result.exitCode !== undefined && result.exitCode !== 0) {
-    return { ...result, status: 'failed', output: output || `Project runtime exited with code ${result.exitCode}` };
-  }
+  if (result.status === 'succeeded' && result.exitCode !== undefined && result.exitCode !== 0) return { ...result, status: 'failed', output: output || `Project runtime exited with code ${result.exitCode}` };
   return { ...result, output };
 }
 
@@ -86,10 +125,12 @@ export async function runProjectCommand(env: Env, tenantId: string, projectId: s
   const safeCommand = command.trim();
   if (!safeCommand || safeCommand.length > 2_000 || /[\r\n]/.test(safeCommand)) throw new Error('Invalid project runtime command');
   if (files.length > MAX_FILES) throw new Error('Too many project files');
+  if (env.Sandbox) return runInSandbox(env, tenantId, projectId, safeCommand, files);
   return signedRequest(env, 'POST', '/v1/projects/run', JSON.stringify({ tenantId, projectId, command: safeCommand, files: files.map(file => ({ path: validatePath(file.path), content: file.content })) }));
 }
 
 export async function getProjectRuntimeJob(env: Env, tenantId: string, projectId: string, jobId: string): Promise<RuntimeResult> {
+  if (jobId.startsWith('sandbox:')) return pollSandbox(env, jobId);
   if (!/^[A-Za-z0-9._:-]{1,200}$/.test(jobId)) throw new Error('Invalid project runtime job id');
   return signedRequest(env, 'GET', `/v1/projects/jobs/${encodeURIComponent(jobId)}?tenantId=${encodeURIComponent(tenantId)}&projectId=${encodeURIComponent(projectId)}`, `${tenantId}.${projectId}.${jobId}`);
 }

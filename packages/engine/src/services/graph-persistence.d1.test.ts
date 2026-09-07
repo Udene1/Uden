@@ -34,7 +34,7 @@ describe('graph persistence D1 integration', () => {
     db = platform.env.DB as D1Database; dispose = platform.dispose;
     await execSqlFile(db, schemaPath);
     await execSqlFile(db, migrationPath('0003_graph_durable_execution.sql'));
-    await execSqlFile(db, migrationPath('0005_permissions_audit.sql'));
+    await execSqlFile(db, migrationPath('0004_budget_reservations.sql'));
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-a','Tenant A','a@example.test','hash-a').run();
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-b','Tenant B','b@example.test','hash-b').run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('root-a','tenant-a','integration graph','processing').run();

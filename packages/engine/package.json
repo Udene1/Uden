@@ -27,6 +27,7 @@
     "db:migrate:verification-repair:local": "wrangler d1 execute DB --local --file=migrations/0013_graph_verification_repair.sql",
     "db:migrate:repair-proposals:local": "wrangler d1 execute DB --local --file=migrations/0014_graph_repair_proposals.sql",
     "db:migrate:workflow-linkage:local": "wrangler d1 execute DB --local --file=migrations/0015_autonomous_workflow_linkage.sql",
+    "db:migrate:objective-projects:local": "wrangler d1 execute DB --local --file=migrations/0016_autonomous_objective_projects.sql",
     "db:migrate:remote": "wrangler d1 execute DB --remote --file=src/db/schema.sql",
     "db:migrate:graph:remote": "wrangler d1 execute DB --remote --file=migrations/0002_task_graph_persistence.sql",
     "db:migrate:graph:durable:remote": "wrangler d1 execute DB --remote --file=migrations/0003_graph_durable_execution.sql",
@@ -41,7 +42,8 @@
     "db:migrate:objectives:remote": "wrangler d1 execute DB --remote --file=migrations/0012_autonomous_objectives.sql",
     "db:migrate:verification-repair:remote": "wrangler d1 execute DB --remote --file=migrations/0013_graph_verification_repair.sql",
     "db:migrate:repair-proposals:remote": "wrangler d1 execute DB --remote --file=migrations/0014_graph_repair_proposals.sql",
-    "db:migrate:workflow-linkage:remote": "wrangler d1 execute DB --remote --file=migrations/0015_autonomous_workflow_linkage.sql"
+    "db:migrate:workflow-linkage:remote": "wrangler d1 execute DB --remote --file=migrations/0015_autonomous_workflow_linkage.sql",
+    "db:migrate:objective-projects:remote": "wrangler d1 execute DB --remote --file=migrations/0016_autonomous_objective_projects.sql"
   },
   "dependencies": { "hono": "^4.0.0", "@hono/zod-validator": "^0.2.0", "zod": "^3.22.4", "@ai-work-partner/shared": "*", "@cloudflare/sandbox": "next" },
   "devDependencies": { "wrangler": "^3.0.0", "@cloudflare/workers-types": "^4.20240222.0", "vitest": "^1.3.1", "typescript": "^5.3.3" },

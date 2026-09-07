@@ -75,7 +75,11 @@ async function signedRequest(env: Env, method: 'GET' | 'POST', path: string, pay
   if (!response.ok) throw new Error('Project runtime request failed');
   const result = await response.json() as RuntimeResult;
   if (!result.jobId || !['queued','running','succeeded','failed'].includes(result.status)) throw new Error('Project runtime returned an invalid result');
-  return { ...result, output: result.output?.slice(0, MAX_OUTPUT) };
+  const output = result.output?.slice(0, MAX_OUTPUT);
+  if (result.status === 'succeeded' && result.exitCode !== undefined && result.exitCode !== 0) {
+    return { ...result, status: 'failed', output: output || `Project runtime exited with code ${result.exitCode}` };
+  }
+  return { ...result, output };
 }
 
 export async function runProjectCommand(env: Env, tenantId: string, projectId: string, command: string, files: ProjectFile[]): Promise<RuntimeResult> {

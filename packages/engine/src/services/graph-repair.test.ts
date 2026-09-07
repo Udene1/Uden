@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canRepair } from './graph-repair';
+import { canRepair, parseRepairPatchDocument } from './graph-repair';
 import type { TaskNode } from '@ai-work-partner/shared';
 
 const node = (repairAttempts = 0): TaskNode => ({
@@ -15,8 +15,28 @@ describe('bounded graph repair', () => {
   it('does not repair successful nodes', () => expect(canRepair({ ...node(0), status: 'completed' })).toBe(false));
 });
 
-describe('repair proposal contract', () => {
-  it('requires generated repairs to be machine-readable patch documents', () => {
-    expect(canRepair(node(0))).toBe(true);
+describe('repair patch contract', () => {
+  it('accepts strict JSON', () => {
+    expect(parseRepairPatchDocument('{"files":[{"path":"src/a.ts","content":"export const a = 1;"}]}')).toEqual([
+      { path: 'src/a.ts', content: 'export const a = 1;' },
+    ]);
+  });
+
+  it('accepts a JSON fenced response', () => {
+    expect(parseRepairPatchDocument('```json\n{"files":[{"path":"src/a.ts","content":"ok"}]}\n```')).toEqual([
+      { path: 'src/a.ts', content: 'ok' },
+    ]);
+  });
+
+  it('rejects malformed model output', () => {
+    expect(() => parseRepairPatchDocument('not json')).toThrow('valid patch document');
+  });
+
+  it('rejects duplicate files', () => {
+    expect(() => parseRepairPatchDocument('{"files":[{"path":"a","content":"1"},{"path":"a","content":"2"}]}')).toThrow('duplicate paths');
+  });
+
+  it('rejects empty patches', () => {
+    expect(() => parseRepairPatchDocument('{"files":[]}')).toThrow('invalid number of files');
   });
 });

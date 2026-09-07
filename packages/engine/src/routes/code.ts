@@ -18,6 +18,11 @@ codeRoutes.post('/generate', async c => {
       projectId: body.projectId,
       existingContext: body.existingContext,
     });
+
+    if (!('taskId' in result)) {
+      throw new Error('Code generation did not produce an executable task result');
+    }
+
     await writeAudit(c.env.DB, tenantId, 'code.generate', 'code_generation', result.taskId, undefined, c.get('requestId'), {
       language: result.generatedFor.language,
       framework: result.generatedFor.framework,

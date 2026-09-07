@@ -11,5 +11,6 @@ export interface Env {
   GOOGLE_AI_API_KEY?: string;
   DEEPSEEK_API_KEY?: string;
   ALERT_WEBHOOK_URL?: string;
+  ALLOWED_ORIGINS?: string;
 }
 export type HonoEnv = { Bindings: Env; Variables: { tenant: Tenant; tenantId: string; requestId: string; }; };

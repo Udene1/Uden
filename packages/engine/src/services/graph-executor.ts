@@ -10,6 +10,7 @@ import { retryWithBackoff } from './retry';
 import { sanitizeProviderError, isRetryableProviderError } from './provider-errors';
 import { executeProjectTool, type ProjectTool, type RuntimeResult } from './project-context';
 import { getProjectRuntimeJob } from './project-runtime';
+import { verifyRuntimeResult } from './graph-verification';
 import type { Task, TaskGraph, TaskGraphPlan, TaskNode, TaskNodeStatus } from '@ai-work-partner/shared';
 import { MAX_ESCALATION_ATTEMPTS } from '@ai-work-partner/shared';
 
@@ -46,9 +47,9 @@ async function executeProjectToolNode(env: HonoEnv['Bindings'], graph: TaskGraph
     if (node.tool === 'execute' && isRuntimeResult(result)) {
       node.runtimeJobId = result.jobId; node.output = result.output || JSON.stringify(result);
       if (result.status === 'queued' || result.status === 'running') { node.error = undefined; setNodeStatus(node, 'awaiting-runtime'); await persist('awaiting-runtime'); return; }
-      if (result.status === 'failed') { node.error = result.output || 'Project runtime execution failed'; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; }
+      if (result.status === 'failed') { node.verification = verifyRuntimeResult(result); node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; }
     }
-    node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running');
+    if (node.tool === 'execute' && isRuntimeResult(result)) { node.verification = verifyRuntimeResult(result); if (!node.verification.passed) { node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; } } node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running');
   } catch (error) { const safe = sanitizeProviderError('project-runtime', error); node.error = safe.message; setNodeStatus(node, 'failed'); await persist('failed', safe.message); }
 }
 
@@ -100,8 +101,8 @@ async function resumeRuntimeJobs(env: HonoEnv['Bindings'], tenantId: string, gra
     try {
       const result = await getProjectRuntimeJob(env, tenantId, projectId, node.runtimeJobId);
       node.output = result.output || node.output;
-      if (result.status === 'succeeded') { node.error = undefined; node.qualityScore = 1; node.status = 'completed'; }
-      else if (result.status === 'failed') { node.error = result.output || 'Project runtime execution failed'; node.status = 'failed'; }
+      if (result.status === 'succeeded') { node.verification = verifyRuntimeResult(result); if (node.verification.passed) { node.error = undefined; node.qualityScore = 1; node.status = 'completed'; } else { node.error = node.verification.reason; node.status = 'failed'; } }
+      else if (result.status === 'failed') { node.verification = verifyRuntimeResult(result); node.error = node.verification.reason; node.status = 'failed'; }
       else { node.error = undefined; node.status = 'awaiting-runtime'; }
     } catch (error) { const safe = sanitizeProviderError('project-runtime', error); node.error = safe.message; node.status = 'awaiting-runtime'; }
   }
@@ -110,6 +111,6 @@ async function resumeRuntimeJobs(env: HonoEnv['Bindings'], tenantId: string, gra
 export async function resumeTaskGraph(env: HonoEnv['Bindings'], tenantId: string, graphId: string): Promise<GraphExecutionResult> {
   const graph = await getPersistedGraph(env.DB, tenantId, graphId); if (!graph) throw new Error('Graph not found'); const owner = crypto.randomUUID(); if (!(await acquireGraphExecutionLease(env.DB, tenantId, graphId, owner))) throw new Error('Graph is currently owned by another execution'); const tenant = await getTenantById(env.DB, tenantId); const qualityPreference = tenant?.qualityPreference || 'balanced';
   await resumeRuntimeJobs(env, tenantId, graph);
-  for (const node of graph.nodes) { if (node.status === 'running' || node.status === 'failed' || node.status === 'blocked') { if (node.approvalState === 'pending') node.status = 'awaiting-approval'; else { node.status = node.dependencies.length === 0 ? 'ready' : 'pending'; node.error = 'Recovered for retry after interrupted or failed execution'; } } }
+  for (const node of graph.nodes) { if (node.status === 'running' || node.status === 'blocked') { if (node.approvalState === 'pending') node.status = 'awaiting-approval'; else { node.status = node.dependencies.length === 0 ? 'ready' : 'pending'; node.error = 'Recovered for retry after interrupted execution'; } } else if (node.status === 'failed' && node.approvalState === 'pending') { node.status = 'awaiting-approval'; } }
   await persistGraphSnapshot(env.DB, tenantId, graph, 'running', null, null, { owner }); try { const result = await executeGraphState(env, tenantId, graph, qualityPreference, owner); await updateTask(env.DB, graph.rootTaskId, tenantId, { status: result.status === 'completed' ? 'completed' : result.status === 'awaiting-approval' ? 'awaiting-approval' : result.status === 'awaiting-runtime' ? 'processing' : 'failed', output: result.output, totalCostCents: result.totalCostCents, tokensIn: result.tokensIn, tokensOut: result.tokensOut, escalationCount: graph.nodes.reduce((count, node) => count + Math.max(0, node.attemptedModels.length - 1), 0), ...(result.status === 'completed' ? { completedAt: new Date().toISOString() } : {}) }); return result; } catch (error) { const safe = sanitizeProviderError('graph', error); await persistGraphSnapshot(env.DB, tenantId, graph, 'failed', graph.nodes.find((node) => node.status === 'running')?.id || null, safe.message, { owner }); throw safe; }
 }

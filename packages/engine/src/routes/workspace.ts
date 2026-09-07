@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types';
-import { listProjectFiles, searchProjectFiles, upsertProjectFile, runProjectCommand } from '../services/project-runtime';
+import { listProjectFiles, searchProjectFiles, upsertProjectFile, runProjectCommand, getProjectRuntimeJob } from '../services/project-runtime';
 import { applyProjectPatch } from '../services/project-patch';
 import { projectTree, readProjectFile, previewProjectDiff, executeProjectTool, type ProjectTool } from '../services/project-context';
 import { requirePermission, writeAudit } from '../services/permissions';
@@ -68,4 +68,19 @@ workspaceRoutes.post('/projects/:projectId/run', async c => {
   const tenantId = c.get('tenantId'); const projectId = c.req.param('projectId');
   try { await requirePermission(c.env.DB, tenantId, 'project:execute'); const body = await c.req.json().catch(() => ({})); if (!body || typeof body.command !== 'string') return c.json({ error: 'command is required' }, 400); const files = await listProjectFiles(c.env, tenantId, projectId); const result = await runProjectCommand(c.env, tenantId, projectId, body.command, files); await c.env.DB.prepare('INSERT INTO project_runtime_jobs (id,tenant_id,project_id,command,status,exit_code,output,started_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(result.jobId, tenantId, projectId, body.command.trim(), result.status, result.exitCode ?? null, result.output ?? null, result.status === 'running' || result.status === 'succeeded' || result.status === 'failed' ? new Date().toISOString() : null, result.status === 'succeeded' || result.status === 'failed' ? new Date().toISOString() : null).run(); await writeAudit(c.env.DB, tenantId, 'project.runtime.execute', 'project_runtime_job', result.jobId, undefined, c.get('requestId'), { projectId, command: body.command.trim(), status: result.status }); return c.json(result, 202); }
   catch (error) { const message = sanitizeError(error); return c.json({ error: message }, message === 'Forbidden' ? 403 : 502); }
+});
+
+workspaceRoutes.get('/projects/:projectId/run/:jobId', async c => {
+  const tenantId = c.get('tenantId'); const projectId = c.req.param('projectId'); const jobId = c.req.param('jobId');
+  try {
+    await requirePermission(c.env.DB, tenantId, 'project:execute');
+    const local = await c.env.DB.prepare('SELECT id,command,status,exit_code,output,created_at,started_at,completed_at FROM project_runtime_jobs WHERE id=? AND tenant_id=? AND project_id=?').bind(jobId, tenantId, projectId).first<{id:string;command:string;status:string;exit_code:number|null;output:string|null;created_at:string;started_at:string|null;completed_at:string|null}>();
+    if (!local) return c.json({ error: 'Project runtime job not found' }, 404);
+    if (local.status === 'succeeded' || local.status === 'failed') return c.json({ jobId: local.id, status: local.status, exitCode: local.exit_code ?? undefined, output: local.output ?? undefined, createdAt: local.created_at, startedAt: local.started_at ?? undefined, completedAt: local.completed_at ?? undefined }, 200);
+    const result = await getProjectRuntimeJob(c.env, tenantId, projectId, jobId);
+    const now = new Date().toISOString();
+    await c.env.DB.prepare('UPDATE project_runtime_jobs SET status=?,exit_code=?,output=?,started_at=COALESCE(started_at,?),completed_at=? WHERE id=? AND tenant_id=? AND project_id=?').bind(result.status, result.exitCode ?? null, result.output ?? null, result.status === 'running' || result.status === 'succeeded' || result.status === 'failed' ? now : null, result.status === 'succeeded' || result.status === 'failed' ? now : null, jobId, tenantId, projectId).run();
+    await writeAudit(c.env.DB, tenantId, 'project.runtime.status', 'project_runtime_job', jobId, undefined, c.get('requestId'), { projectId, status: result.status });
+    return c.json(result, 200);
+  } catch (error) { const message = sanitizeError(error); return c.json({ error: message }, message === 'Forbidden' ? 403 : message === 'Project runtime job not found' ? 404 : 502); }
 });

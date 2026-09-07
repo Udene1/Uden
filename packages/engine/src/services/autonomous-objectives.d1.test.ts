@@ -26,7 +26,7 @@ describe('autonomous objectives D1 integration', () => {
   afterAll(async () => { await dispose?.(); });
 
   it('persists an objective and claims it exactly once when due', async () => {
-    const plan: TaskGraphPlan = { goal: 'collect daily competitor prices', nodes: [{ id: 'collect', title: 'Collect prices', prompt: 'Collect prices', domain: 'research', complexity: 2, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'pending', attemptedModels: [] }] };
+    const plan: TaskGraphPlan = { goal: 'collect daily competitor prices', nodes: [{ id: 'collect', title: 'Collect prices', prompt: 'Collect prices', domain: 'research', complexity: 2, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [] }] };
     const now = new Date('2026-09-07T03:00:00.000Z');
     const objective = await createAutonomousObjective(db as any, 'objective-tenant', { name: 'Price monitor', objective: 'Collect competitor prices', plan, permissions: ['project:execute'], resources: ['web'], successCriteria: 'At least one verified price', intervalSeconds: 3600, nextRunAt: '2026-09-07T02:59:00.000Z' });
     expect(objective.enabled).toBe(true);

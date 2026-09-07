@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { listProjectFiles, searchProjectFiles, upsertProjectFile, runProjectCommand, type ProjectFile, type RuntimeResult } from './project-runtime';
+import { listProjectFiles, searchProjectFiles, runProjectCommand, type ProjectFile, type RuntimeResult } from './project-runtime';
 import { applyProjectPatch, type ProjectPatchInput, type ProjectPatchResult } from './project-patch';
 
 const MAX_READ_BYTES = 200_000;
@@ -28,7 +28,7 @@ export async function projectTree(env: Env, tenantId: string, projectId: string)
   return files.map(file => ({ path: file.path, version: file.version, contentSha256: file.contentSha256, size: file.content.length }));
 }
 
-function diffLines(base: string[], next: string[]): ProjectDiffLine[] {
+function diffLines(base: string[], next: string[]): { lines: ProjectDiffLine[]; truncated: boolean } {
   const n = base.length, m = next.length;
   const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = base[i] === next[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
@@ -41,7 +41,7 @@ function diffLines(base: string[], next: string[]): ProjectDiffLine[] {
   }
   while (i < n && out.length < MAX_DIFF_LINES) out.push({ type: 'remove', line: i + 1, text: base[i++] });
   while (j < m && out.length < MAX_DIFF_LINES) out.push({ type: 'add', text: next[j++] });
-  return out;
+  return { lines: out, truncated: i < n || j < m };
 }
 
 export async function previewProjectDiff(env: Env, tenantId: string, projectId: string, path: string, content: string, expectedVersion?: number): Promise<ProjectDiff> {
@@ -50,7 +50,8 @@ export async function previewProjectDiff(env: Env, tenantId: string, projectId: 
   let current: ProjectFile | null = null;
   try { current = await readProjectFile(env, tenantId, projectId, normalized); } catch (error) { if (!(error instanceof Error) || error.message !== 'Project file not found') throw error; }
   if (expectedVersion !== undefined && current?.version !== expectedVersion) throw new Error('Project file version conflict');
-  return { path: normalized, baseVersion: current?.version ?? null, lines: diffLines((current?.content ?? '').split(/\r?\n/), content.split(/\r?\n/)), truncated: false };
+  const diff = diffLines((current?.content ?? '').split(/\r?\n/), content.split(/\r?\n/));
+  return { path: normalized, baseVersion: current?.version ?? null, ...diff };
 }
 
 export type ProjectTool =

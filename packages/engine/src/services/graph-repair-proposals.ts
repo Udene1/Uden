@@ -1,0 +1,97 @@
+import type { HonoEnv } from '../types';
+import type { TaskGraph, TaskNode } from '@ai-work-partner/shared';
+import { applyProjectPatch, type ProjectPatchInput } from './project-patch';
+import { buildRepairProposal, MAX_GRAPH_REPAIR_ATTEMPTS } from './graph-repair';
+import { persistGraphSnapshot, getPersistedGraph } from './graph-persistence';
+
+export type GraphRepairProposalStatus = 'proposed' | 'approved' | 'applied' | 'rejected' | 'failed';
+export interface GraphRepairProposalRecord {
+  id: string; tenantId: string; graphId: string; nodeId: string; attemptNumber: number;
+  status: GraphRepairProposalStatus; instruction: string; patch: ProjectPatchInput[];
+  reason?: string; error?: string; createdAt: string; approvedBy?: string; approvedAt?: string; appliedAt?: string;
+}
+
+function parsePatch(value: unknown): ProjectPatchInput[] {
+  try { const parsed = JSON.parse(String(value)); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+}
+function rowToProposal(row: any): GraphRepairProposalRecord {
+  return { id: row.id, tenantId: row.tenant_id, graphId: row.graph_id, nodeId: row.node_id, attemptNumber: row.attempt_number, status: row.status, instruction: row.instruction, patch: parsePatch(row.patch_json), reason: row.reason || undefined, error: row.error || undefined, createdAt: row.created_at, approvedBy: row.approved_by || undefined, approvedAt: row.approved_at || undefined, appliedAt: row.applied_at || undefined };
+}
+
+export async function getGraphRepairProposal(db: D1Database, tenantId: string, proposalId: string): Promise<GraphRepairProposalRecord | null> {
+  const row = await db.prepare('SELECT * FROM graph_repair_proposals WHERE id=? AND tenant_id=?').bind(proposalId, tenantId).first<any>();
+  return row ? rowToProposal(row) : null;
+}
+
+export async function listGraphRepairProposals(db: D1Database, tenantId: string, graphId: string, nodeId?: string): Promise<GraphRepairProposalRecord[]> {
+  const result = nodeId
+    ? await db.prepare('SELECT * FROM graph_repair_proposals WHERE tenant_id=? AND graph_id=? AND node_id=? ORDER BY attempt_number DESC').bind(tenantId, graphId, nodeId).all<any>()
+    : await db.prepare('SELECT * FROM graph_repair_proposals WHERE tenant_id=? AND graph_id=? ORDER BY created_at DESC').bind(tenantId, graphId).all<any>();
+  return (result.results || []).map(rowToProposal);
+}
+
+export async function proposeGraphRepair(env: HonoEnv['Bindings'], tenantId: string, graph: TaskGraph, node: TaskNode): Promise<GraphRepairProposalRecord> {
+  const projectId = graph.projectId;
+  if (!projectId) throw new Error('Repair requires a project-backed graph');
+  if (node.repairAttempts !== undefined && node.repairAttempts >= MAX_GRAPH_REPAIR_ATTEMPTS) throw new Error('Maximum repair attempts reached');
+  const attemptNumber = (node.repairAttempts || 0) + 1;
+  const proposal = await buildRepairProposal(env, tenantId, projectId, node);
+  if (!proposal.files?.length || !proposal.instruction) throw new Error('Repair proposal was empty');
+  const id = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO graph_repair_proposals (id,tenant_id,graph_id,node_id,attempt_number,status,instruction,patch_json,reason) VALUES (?,?,?,?,?,'proposed',?,?,?)`).bind(id, tenantId, graph.id, node.id, attemptNumber, proposal.instruction, JSON.stringify(proposal.files), proposal.reason).run();
+  node.repairAttempts = attemptNumber;
+  node.approvalRequired = true;
+  node.approvalState = 'pending';
+  node.approvalReason = `Repair proposal ${id} requires approval before project mutation`;
+  node.status = 'awaiting-approval';
+  node.error = proposal.reason;
+  await persistGraphSnapshot(env.DB, tenantId, graph, 'awaiting-approval', node.id, node.approvalReason);
+  return (await getGraphRepairProposal(env.DB, tenantId, id))!;
+}
+
+export async function approveGraphRepair(env: HonoEnv['Bindings'], tenantId: string, proposalId: string, approvedBy: string): Promise<GraphRepairProposalRecord> {
+  const proposal = await getGraphRepairProposal(env.DB, tenantId, proposalId);
+  if (!proposal) throw new Error('Graph repair proposal not found');
+  if (proposal.status !== 'proposed') throw new Error('Graph repair proposal is not awaiting approval');
+  const updated = await env.DB.prepare(`UPDATE graph_repair_proposals SET status='approved',approved_by=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND status='proposed'`).bind(approvedBy.trim().slice(0, 200) || 'unknown', proposalId, tenantId).run();
+  if (!updated.meta?.changes) throw new Error('Graph repair proposal approval conflict');
+  const result = await applyApprovedGraphRepair(env, tenantId, proposalId);
+  return result;
+}
+
+export async function rejectGraphRepair(db: D1Database, tenantId: string, proposalId: string, rejectedBy: string, reason?: string): Promise<GraphRepairProposalRecord> {
+  const proposal = await getGraphRepairProposal(db, tenantId, proposalId);
+  if (!proposal) throw new Error('Graph repair proposal not found');
+  if (proposal.status !== 'proposed') throw new Error('Graph repair proposal is not awaiting approval');
+  const error = (reason?.trim() || `Repair proposal rejected by ${rejectedBy.trim().slice(0, 200) || 'unknown'}`).slice(0, 1000);
+  const updated = await db.prepare(`UPDATE graph_repair_proposals SET status='rejected',error=?,approved_by=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND status='proposed'`).bind(error, rejectedBy.trim().slice(0, 200) || 'unknown', proposalId, tenantId).run();
+  if (!updated.meta?.changes) throw new Error('Graph repair proposal rejection conflict');
+  return (await getGraphRepairProposal(db, tenantId, proposalId))!;
+}
+
+export async function applyApprovedGraphRepair(env: HonoEnv['Bindings'], tenantId: string, proposalId: string): Promise<GraphRepairProposalRecord> {
+  const proposal = await getGraphRepairProposal(env.DB, tenantId, proposalId);
+  if (!proposal) throw new Error('Graph repair proposal not found');
+  if (proposal.status !== 'approved') throw new Error('Graph repair proposal is not approved');
+  const graph = await getPersistedGraph(env.DB, tenantId, proposal.graphId);
+  if (!graph) throw new Error('Graph not found');
+  const node = graph.nodes.find(candidate => candidate.id === proposal.nodeId);
+  if (!node) throw new Error('Graph node not found');
+  if (node.status !== 'awaiting-approval' || node.approvalState !== 'pending') throw new Error('Repair node approval state is invalid');
+  if (node.repairAttempts !== proposal.attemptNumber) throw new Error('Repair attempt state conflict');
+  try {
+    await applyProjectPatch(env, tenantId, graph.projectId!, proposal.patch);
+    await env.DB.prepare(`UPDATE graph_repair_proposals SET status='applied',applied_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND status='approved'`).bind(proposalId, tenantId).run();
+    node.approvalState = 'approved'; node.approvedBy = proposal.approvedBy; node.approvedAt = proposal.approvedAt; node.approvalReason = undefined; node.status = 'ready'; node.error = undefined; node.verification = undefined;
+    await persistGraphSnapshot(env.DB, tenantId, graph, 'running', node.id, null);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Repair patch application failed';
+    await env.DB.prepare(`UPDATE graph_repair_proposals SET status='failed',error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND status='approved'`).bind(message.slice(0, 1000), proposalId, tenantId).run();
+    node.repairError = message;
+    node.status = 'failed';
+    node.error = 'Approved repair could not be applied';
+    await persistGraphSnapshot(env.DB, tenantId, graph, 'failed', node.id, node.error);
+    throw error;
+  }
+  return (await getGraphRepairProposal(env.DB, tenantId, proposalId))!;
+}

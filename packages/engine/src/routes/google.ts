@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types';
-import { createGoogleAuthorizationUrl, completeGoogleAuthorization, listGmailMessages, sendGmailMessage } from '../services/google-workspace';
+import { createGoogleAuthorizationUrl, completeGoogleAuthorization, listGmailMessages, sendGmailMessage, type GmailSendResult } from '../services/google-workspace';
 import { requirePermission, writeAudit } from '../services/permissions';
 import { sanitizeError } from '../services/observability';
 
@@ -49,7 +49,7 @@ googleRoutes.post('/gmail/send', async c => {
     await requirePermission(c.env.DB, tenantId, 'workspace:send');
     const body = await c.req.json().catch(() => ({}));
     if (!body || typeof body.to !== 'string' || typeof body.subject !== 'string' || typeof body.body !== 'string') return c.json({ error: 'to, subject, and body are required' }, 400);
-    const result = await sendGmailMessage(c.env, tenantId, body.to, body.subject, body.body);
+    const result: GmailSendResult = await sendGmailMessage(c.env, tenantId, body.to, body.subject, body.body);
     await writeAudit(c.env.DB, tenantId, 'gmail.send', 'gmail_message', result.id || undefined, undefined, c.get('requestId'), { to: body.to, subject: body.subject });
     return c.json({ sent: true, messageId: result.id || null, threadId: result.threadId || null }, 200);
   } catch (error) {

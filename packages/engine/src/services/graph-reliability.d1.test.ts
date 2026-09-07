@@ -42,7 +42,8 @@ describe('graph reliability D1 integration', () => {
     await execSqlFile(db, migrationPath('0003_graph_durable_execution.sql'));
     await execSqlFile(db, migrationPath('0004_budget_reservations.sql'));
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant','Reliability','r@example.test','reliability-hash',10).run();
-    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','recovery test','processing').run();
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','dependency graph test','processing').run();
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-crash-root','reliability-tenant','recovery test','processing').run();
   });
   afterAll(async () => { await dispose?.(); });
 
@@ -77,7 +78,7 @@ describe('graph reliability D1 integration', () => {
 
   it('recovers persisted running state after a crash and never leaves a node running', async () => {
     const graph: TaskGraph = {
-      id: 'crash-resume-graph', rootTaskId: 'reliability-root', goal: 'crash resume', createdAt: new Date().toISOString(),
+      id: 'crash-resume-graph', rootTaskId: 'reliability-crash-root', goal: 'crash resume', createdAt: new Date().toISOString(),
       nodes: [{ id:'recover', title:'Recover', prompt:'Recover this work', domain:'general', complexity:1, expectedFormat:'markdown', recommendedTier:1, dependencies:[], contextFrom:[], status:'running', attemptedModels:['gpt-4o-mini'] }]
     };
     await persistGraph(db, 'reliability-tenant', graph);

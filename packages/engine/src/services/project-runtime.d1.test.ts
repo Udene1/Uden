@@ -4,7 +4,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { listProjectFiles, upsertProjectFile, runProjectCommand } from './project-runtime';
+import { listProjectFiles, searchProjectFiles, upsertProjectFile, runProjectCommand } from './project-runtime';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const engineRoot = resolve(testDir, '../..');
@@ -17,6 +17,7 @@ describe('project workspace D1 integration', () => {
   beforeAll(async () => { const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.jsonc'), persist: false }); db = platform.env.DB as D1Database; dispose = platform.dispose; await execSqlFile(db, schemaPath); await execSqlFile(db, migration); await db.prepare('INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)').bind('workspace-a','Workspace A','a@example.test','workspace-hash-a').run(); await db.prepare('INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)').bind('workspace-b','Workspace B','b@example.test','workspace-hash-b').run(); await db.prepare('INSERT INTO projects (id,tenant_id,name) VALUES (?,?,?)').bind('project-a','workspace-a','Project A').run(); await db.prepare('INSERT INTO projects (id,tenant_id,name) VALUES (?,?,?)').bind('project-b','workspace-b','Project B').run(); });
   afterAll(async () => { await dispose?.(); });
   it('persists versioned files with tenant isolation', async () => { const first = await upsertProjectFile({ DB: db } as never, 'workspace-a', 'project-a', 'src/index.ts', 'export const answer = 42;'); expect(first.version).toBe(1); const second = await upsertProjectFile({ DB: db } as never, 'workspace-a', 'project-a', 'src/index.ts', 'export const answer = 43;', 1); expect(second.version).toBe(2); expect((await listProjectFiles({ DB: db } as never, 'workspace-a', 'project-a')).map(file => file.path)).toEqual(['src/index.ts']); expect(await listProjectFiles({ DB: db } as never, 'workspace-b', 'project-a')).toEqual([]); });
+  it('searches project code without crossing tenants', async () => { await upsertProjectFile({ DB: db } as never, 'workspace-a', 'project-a', 'src/search.ts', 'const target = "needle";\nconst other = 1;'); await upsertProjectFile({ DB: db } as never, 'workspace-b', 'project-b', 'src/other.ts', 'const target = "needle";'); const matches = await searchProjectFiles({ DB: db } as never, 'workspace-a', 'project-a', 'NEEDLE'); expect(matches).toEqual([{ path: 'src/search.ts', line: 1, text: 'const target = "needle";' }]); expect(await searchProjectFiles({ DB: db } as never, 'workspace-b', 'project-a', 'needle')).toEqual([]); });
   it('rejects path traversal and optimistic concurrency conflicts', async () => { await expect(upsertProjectFile({ DB: db } as never, 'workspace-a', 'project-a', '../secrets', 'x')).rejects.toThrow('Invalid project file path'); await expect(upsertProjectFile({ DB: db } as never, 'workspace-a', 'project-a', 'src/index.ts', 'bad', 1)).rejects.toThrow('Project file version conflict'); });
   it('fails closed when no real runtime is configured', async () => { await expect(runProjectCommand({ DB: db } as never, 'workspace-a', 'project-a', 'npm test', [])).rejects.toThrow('Project runtime is not configured'); });
 });

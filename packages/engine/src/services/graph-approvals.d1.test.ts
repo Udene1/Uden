@@ -1,9 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
 import type { D1Database } from '@cloudflare/workers-types';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
 import { persistGraph, getPersistedGraph } from './graph-persistence';
 import { gateGraphNodeForApproval } from './graph-executor';
 import { requestGraphNodeApproval, approveGraphNode, rejectGraphNode } from './graph-approvals';
@@ -15,7 +12,7 @@ const execSqlFile = async (db: D1Database, path: string) => { const sql = await 
 
 describe('graph approvals D1 integration', () => {
   let db: D1Database; let dispose: (() => Promise<void>) | undefined;
-  beforeAll(async () => { const platform = await getPlatformProxy({ configPath: resolve(root, 'wrangler.jsonc'), persist: false }); db = platform.env.DB as D1Database; dispose = platform.dispose; await execSqlFile(db, resolve(here, '../db/schema.sql')); await execSqlFile(db, resolve(root, 'migrations/0002_task_graph_persistence.sql')); await execSqlFile(db, resolve(root, 'migrations/0003_graph_durable_execution.sql')); await execSqlFile(db, resolve(root, 'migrations/0010_graph_node_approvals.sql')); await db.prepare('INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)').bind('approval-tenant','Approval Tenant','approval@example.test','approval-hash').run(); });
+  beforeAll(async () => { const platform = await getPlatformProxy({ configPath: resolve(root, 'wrangler.jsonc'), persist: false }); db = platform.env.DB as D1Database; dispose = platform.dispose; await execSqlFile(db, resolve(here, '../db/schema.sql')); for (const migration of ['0002_task_graph_persistence.sql','0003_graph_durable_execution.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql']) await execSqlFile(db, resolve(root, `migrations/${migration}`)); await db.prepare('INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)').bind('approval-tenant','Approval Tenant','approval@example.test','approval-hash').run(); });
   afterAll(async () => { await dispose?.(); });
   it('persists pending approval and atomically transitions to approved', async () => {
     const graph: TaskGraph = { id: 'approval-graph', rootTaskId: 'approval-task', goal: 'approve a project change', createdAt: new Date().toISOString(), nodes: [{ id: 'change', title: 'Change project', prompt: 'change it', domain: 'code', complexity: 1, expectedFormat: 'code', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [] }] };

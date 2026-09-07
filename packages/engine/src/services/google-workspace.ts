@@ -24,6 +24,12 @@ interface StoredConnection {
   scopes: string;
 }
 
+export interface GmailSendResult {
+  id?: string;
+  threadId?: string;
+  labelIds?: string[];
+}
+
 function requireConfig(env: Env) {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI || !env.GOOGLE_TOKEN_ENCRYPTION_KEY) {
     throw new Error('Google Workspace integration is not configured');
@@ -101,7 +107,7 @@ export async function completeGoogleAuthorization(env: Env, code: string, state:
   const payload = new TextDecoder().decode(decodeBase64url(encodedPayload));
   if (!(await verifyHmac(payload, signature, env.GOOGLE_CLIENT_SECRET!))) throw new Error('Invalid Google OAuth state');
   const [tenantId, issuedAt] = payload.split('.');
-  if (!tenantId || !issuedAt || Date.now() - Number(issuedAt) > STATE_TTL_MS) throw new Error('Expired Google OAuth state');
+  if (!tenantId || !issuedAt || !Number.isFinite(Number(issuedAt)) || Date.now() - Number(issuedAt) > STATE_TTL_MS) throw new Error('Expired Google OAuth state');
 
   const tokenResponse = await fetch(GOOGLE_TOKEN, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -176,7 +182,7 @@ function encodeMime(value: string): string {
   return base64url(new TextEncoder().encode(value));
 }
 
-export async function sendGmailMessage(env: Env, tenantId: string, to: string, subject: string, body: string) {
+export async function sendGmailMessage(env: Env, tenantId: string, to: string, subject: string, body: string): Promise<GmailSendResult> {
   if (!/^\S+@\S+\.\S+$/.test(to)) throw new Error('Invalid recipient email');
   if (!subject.trim() || subject.length > 500) throw new Error('Invalid email subject');
   if (!body.trim() || body.length > 100_000) throw new Error('Invalid email body');
@@ -184,5 +190,5 @@ export async function sendGmailMessage(env: Env, tenantId: string, to: string, s
   const raw = [`To: ${to}`, `Subject: ${subject.replace(/[\r\n]/g, ' ')}`, 'Content-Type: text/plain; charset=UTF-8', 'MIME-Version: 1.0', '', body].join('\r\n');
   const response = await fetch(`${GMAIL_API}/messages/send`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: encodeMime(raw) }) });
   if (!response.ok) throw new Error('Gmail send failed');
-  return await response.json();
+  return await response.json() as GmailSendResult;
 }

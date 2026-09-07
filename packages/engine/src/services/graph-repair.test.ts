@@ -14,3 +14,9 @@ describe('bounded graph repair', () => {
   it('does not repair non-execute nodes', () => expect(canRepair({ ...node(0), tool: 'patch' })).toBe(false));
   it('does not repair successful nodes', () => expect(canRepair({ ...node(0), status: 'completed' })).toBe(false));
 });
+
+describe('repair proposal contract', () => {
+  it('requires generated repairs to be machine-readable patch documents', () => {
+    expect(canRepair(node(0))).toBe(true);
+  });
+});

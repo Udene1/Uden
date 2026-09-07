@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'packages/engine/package.json'
+      - '.github/workflows/sync-lockfile.yml'
   workflow_dispatch:
 
 permissions:

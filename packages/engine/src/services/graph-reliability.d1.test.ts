@@ -8,75 +8,10 @@ import { reserveBudget, releaseBudget, getBudgetState } from './cost';
 import { blockDependents, getReadyGraphNodes, resumeTaskGraph } from './graph-executor';
 import { persistGraph, getPersistedGraph } from './graph-persistence';
 import type { TaskGraph } from '@ai-work-partner/shared';
-
-const testDir = dirname(fileURLToPath(import.meta.url));
-const engineRoot = resolve(testDir, '../..');
-const schemaPath = resolve(testDir, '../db/schema.sql');
-const migrationPath = (name: string) => resolve(engineRoot, 'migrations', name);
-
-const execSqlFile = async (db: D1Database, path: string) => {
-  const sql = await readFile(path, 'utf8');
-  const statements = sql.replace(/^\uFEFF/, '').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '').split(';').map(statement => statement.trim()).filter(Boolean);
-  for (const statement of statements) await db.prepare(statement).run();
-};
-
-describe('graph reliability D1 integration', () => {
-  let db: D1Database;
-  let dispose: (() => Promise<void>) | undefined;
-  const env = {} as any;
-
-  beforeAll(async () => {
-    const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.jsonc'), persist: false });
-    db = platform.env.DB as D1Database;
-    env.DB = db;
-    dispose = platform.dispose;
-    await execSqlFile(db, schemaPath);
-    for (const migration of ['0003_graph_durable_execution.sql','0004_budget_reservations.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql']) await execSqlFile(db, migrationPath(migration));
-    await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant','Reliability','r@example.test','reliability-hash',10).run();
-    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','dependency graph test','processing').run();
-    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-crash-root','reliability-tenant','recovery test','processing').run();
-  });
-  afterAll(async () => { await dispose?.(); });
-
-  it('atomically exhausts and releases budget reservations', async () => {
-    expect(await reserveBudget(env, 'reliability-tenant', 7, 'reservation-a')).toBe(true);
-    expect(await reserveBudget(env, 'reliability-tenant', 4, 'reservation-b')).toBe(false);
-    await releaseBudget(env, 'reliability-tenant', 'reservation-a');
-    expect(await reserveBudget(env, 'reliability-tenant', 4, 'reservation-b')).toBe(true);
-    const state = await getBudgetState(env, 'reliability-tenant');
-    expect(state.reservedCents).toBe(4);
-    await releaseBudget(env, 'reliability-tenant', 'reservation-b');
-  });
-
-  it('persists a real multi-node dependency graph and blocks descendants of failure', async () => {
-    const graph: TaskGraph = {
-      id: 'multi-node-graph', rootTaskId: 'reliability-root', goal: 'multi node', createdAt: new Date().toISOString(),
-      nodes: [
-        { id:'a', title:'A', prompt:'A', domain:'general', complexity:1, expectedFormat:'markdown', recommendedTier:1, dependencies:[], contextFrom:[], status:'failed', attemptedModels:[], error:'provider failure' },
-        { id:'b', title:'B', prompt:'B', domain:'general', complexity:1, expectedFormat:'markdown', recommendedTier:1, dependencies:['a'], contextFrom:['a'], status:'pending', attemptedModels:[] },
-        { id:'c', title:'C', prompt:'C', domain:'general', complexity:1, expectedFormat:'markdown', recommendedTier:1, dependencies:['b'], contextFrom:['b'], status:'pending', attemptedModels:[] },
-        { id:'d', title:'D', prompt:'D', domain:'general', complexity:1, expectedFormat:'markdown', recommendedTier:1, dependencies:[], contextFrom:[], status:'ready', attemptedModels:[] }
-      ]
-    };
-    await persistGraph(db, 'reliability-tenant', graph);
-    blockDependents(graph);
-    expect(graph.nodes.find(n => n.id === 'b')?.status).toBe('blocked');
-    expect(graph.nodes.find(n => n.id === 'c')?.status).toBe('blocked');
-    expect(getReadyGraphNodes(graph).map(n => n.id)).toEqual(['d']);
-    const persisted = await getPersistedGraph(db, 'reliability-tenant', 'multi-node-graph');
-    expect(persisted?.nodes).toHaveLength(4);
-  });
-
-  it('recovers persisted running state after a crash and never leaves a node running', async () => {
-    const graph: TaskGraph = {
-      id: 'crash-resume-graph', rootTaskId: 'reliability-crash-root', goal: 'crash resume', createdAt: new Date().toISOString(),
-      nodes: [{ id:'recover', title:'Recover', prompt:'Recover this work', domain:'general', complexity:1, expectedFormat:'markdown', recommendedTier:1, dependencies:[], contextFrom:[], status:'running', attemptedModels:['gpt-4o-mini'] }]
-    };
-    await persistGraph(db, 'reliability-tenant', graph);
-    const result = await resumeTaskGraph(env, 'reliability-tenant', 'crash-resume-graph');
-    expect(result.status).toBe('failed');
-    const persisted = await getPersistedGraph(db, 'reliability-tenant', 'crash-resume-graph');
-    expect(persisted?.nodes.some(n => n.status === 'running')).toBe(false);
-    expect(persisted?.nodes[0].error).toContain('PROVIDER_REQUEST_FAILED');
-  });
+const testDir = dirname(fileURLToPath(import.meta.url)); const engineRoot = resolve(testDir, '../..'); const schemaPath = resolve(testDir, '../db/schema.sql'); const migrationPath = (name:string)=>resolve(engineRoot,'migrations',name);
+const execSqlFile = async(db:D1Database,path:string)=>{const sql=await readFile(path,'utf8');for(const statement of sql.replace(/^\uFEFF/,'').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm,'').split(';').map(statement=>statement.trim()).filter(Boolean))await db.prepare(statement).run();};
+describe('graph reliability D1 integration',()=>{let db:D1Database;let dispose:(()=>Promise<void>)|undefined;const env={} as any;beforeAll(async()=>{const platform=await getPlatformProxy({configPath:resolve(engineRoot,'wrangler.test.jsonc'),persist:false});db=platform.env.DB as D1Database;env.DB=db;dispose=platform.dispose;await execSqlFile(db,schemaPath);for(const migration of ['0003_graph_durable_execution.sql','0004_budget_reservations.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql'])await execSqlFile(db,migrationPath(migration));await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant','Reliability','r@example.test','reliability-hash',10).run();await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','dependency graph test','processing').run();await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-crash-root','reliability-tenant','recovery test','processing').run();});afterAll(async()=>{await dispose?.()});
+  it('atomically exhausts and releases budget reservations',async()=>{expect(await reserveBudget(env,'reliability-tenant',7,'reservation-a')).toBe(true);expect(await reserveBudget(env,'reliability-tenant',4,'reservation-b')).toBe(false);await releaseBudget(env,'reliability-tenant','reservation-a');expect(await reserveBudget(env,'reliability-tenant',4,'reservation-b')).toBe(true);const state=await getBudgetState(env,'reliability-tenant');expect(state.reservedCents).toBe(4);await releaseBudget(env,'reliability-tenant','reservation-b');});
+  it('persists a real multi-node dependency graph and blocks descendants of failure',async()=>{const graph:TaskGraph={id:'multi-node-graph',rootTaskId:'reliability-root',goal:'multi node',createdAt:new Date().toISOString(),nodes:[{id:'a',title:'A',prompt:'A',domain:'general',complexity:1,expectedFormat:'markdown',recommendedTier:1,dependencies:[],contextFrom:[],status:'failed',attemptedModels:[],error:'provider failure'},{id:'b',title:'B',prompt:'B',domain:'general',complexity:1,expectedFormat:'markdown',recommendedTier:1,dependencies:['a'],contextFrom:['a'],status:'pending',attemptedModels:[]},{id:'c',title:'C',prompt:'C',domain:'general',complexity:1,expectedFormat:'markdown',recommendedTier:1,dependencies:['b'],contextFrom:['b'],status:'pending',attemptedModels:[]},{id:'d',title:'D',prompt:'D',domain:'general',complexity:1,expectedFormat:'markdown',recommendedTier:1,dependencies:[],contextFrom:[],status:'ready',attemptedModels:[]}]};await persistGraph(db,'reliability-tenant',graph);blockDependents(graph);expect(graph.nodes.find(n=>n.id==='b')?.status).toBe('blocked');expect(graph.nodes.find(n=>n.id==='c')?.status).toBe('blocked');expect(getReadyGraphNodes(graph).map(n=>n.id)).toEqual(['d']);const persisted=await getPersistedGraph(db,'reliability-tenant','multi-node-graph');expect(persisted?.nodes).toHaveLength(4);});
+  it('recovers persisted running state after a crash and never leaves a node running',async()=>{const graph:TaskGraph={id:'crash-resume-graph',rootTaskId:'reliability-crash-root',goal:'crash resume',createdAt:new Date().toISOString(),nodes:[{id:'recover',title:'Recover',prompt:'Recover this work',domain:'general',complexity:1,expectedFormat:'markdown',recommendedTier:1,dependencies:[],contextFrom:[],status:'running',attemptedModels:['gpt-4o-mini']}]};await persistGraph(db,'reliability-tenant',graph);const result=await resumeTaskGraph(env,'reliability-tenant','crash-resume-graph');expect(result.status).toBe('failed');const persisted=await getPersistedGraph(db,'reliability-tenant','crash-resume-graph');expect(persisted?.nodes.some(n=>n.status==='running')).toBe(false);expect(persisted?.nodes[0].error).toContain('PROVIDER_REQUEST_FAILED');});
 });

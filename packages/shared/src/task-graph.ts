@@ -3,7 +3,6 @@ import type { ModelTier, OutputFormat, QualityPreference, TaskDomain } from './t
 export type TaskNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting-approval' | 'awaiting-runtime';
 export type ApprovalState = 'not-required' | 'pending' | 'approved' | 'rejected';
 export type TaskNodeKind = 'model' | 'project-tool';
-
 export interface TaskNodeVerification { passed: boolean; reason: string; checkedAt: string; }
 export interface TaskNode {
   id: string; title: string; prompt: string; domain: TaskDomain; complexity: number; expectedFormat: OutputFormat;
@@ -16,6 +15,7 @@ export interface TaskNode {
 export interface TaskGraph { id: string; rootTaskId: string; goal: string; projectId?: string; nodes: TaskNode[]; createdAt: string; completedAt?: string; }
 export interface TaskGraphPlan {
   goal: string;
+  projectId?: string;
   nodes: Array<Pick<TaskNode, 'id' | 'title' | 'prompt' | 'domain' | 'complexity' | 'expectedFormat' | 'recommendedTier' | 'dependencies' | 'contextFrom'> & Partial<Pick<TaskNode, 'kind' | 'tool' | 'toolInput' | 'approvalRequired' | 'approvalReason'>>>;
 }
 export interface NodeRoutingContext { qualityPreference: QualityPreference; budgetLeftCents: number; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; latencyPreference?: 'low' | 'balanced' | 'unbounded'; }

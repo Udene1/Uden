@@ -12,7 +12,7 @@ const MAX_CONTEXT_FILE_BYTES = 30_000;
 
 export interface RepairProposal { attempted: boolean; exhausted: boolean; instruction?: string; generated?: string; files?: ProjectPatchInput[]; reason: string; }
 
-export function canRepair(node: TaskNode): boolean { return node.kind === 'project-tool' && node.tool === 'execute' && (node.repairAttempts || 0) < MAX_GRAPH_REPAIR_ATTEMPTS; }
+export function canRepair(node: TaskNode): boolean { return node.status === 'failed' && node.kind === 'project-tool' && node.tool === 'execute' && (node.repairAttempts || 0) < MAX_GRAPH_REPAIR_ATTEMPTS; }
 
 export function parseRepairPatchDocument(value: string): Array<{ path: string; content: string }> {
   const trimmed = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');

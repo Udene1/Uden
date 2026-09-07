@@ -11,26 +11,11 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 const engineRoot = resolve(testDir, '../..');
 const schemaPath = resolve(testDir, '../db/schema.sql');
 const migrationPath = (name: string) => resolve(engineRoot, 'migrations', name);
-
-const execSqlFile = async (db: D1Database, path: string) => {
-  const sql = await readFile(path, 'utf8');
-  const statements = sql.replace(/^\uFEFF/, '').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '').split(';').map(statement => statement.trim()).filter(Boolean);
-  for (const statement of statements) await db.prepare(statement).run();
-};
+const execSqlFile = async (db: D1Database, path: string) => { const sql = await readFile(path, 'utf8'); const statements = sql.replace(/^\uFEFF/, '').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '').split(';').map(statement => statement.trim()).filter(Boolean); for (const statement of statements) await db.prepare(statement).run(); };
 
 describe('graph persistence D1 integration', () => {
-  let db: D1Database;
-  let dispose: (() => Promise<void>) | undefined;
-  beforeAll(async () => {
-    const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.jsonc'), persist: false });
-    db = platform.env.DB as D1Database; dispose = platform.dispose;
-    await execSqlFile(db, schemaPath);
-    for (const migration of ['0003_graph_durable_execution.sql','0004_budget_reservations.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql']) await execSqlFile(db, migrationPath(migration));
-    await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-a','Tenant A','a@example.test','hash-a').run();
-    await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-b','Tenant B','b@example.test','hash-b').run();
-    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('root-a','tenant-a','integration graph','processing').run();
-    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('root-lease','tenant-a','lease graph','processing').run();
-  });
+  let db: D1Database; let dispose: (() => Promise<void>) | undefined;
+  beforeAll(async () => { const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.test.jsonc'), persist: false }); db = platform.env.DB as D1Database; dispose = platform.dispose; await execSqlFile(db, schemaPath); for (const migration of ['0003_graph_durable_execution.sql','0004_budget_reservations.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql']) await execSqlFile(db, migrationPath(migration)); await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-a','Tenant A','a@example.test','hash-a').run(); await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)`).bind('tenant-b','Tenant B','b@example.test','hash-b').run(); await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('root-a','tenant-a','integration graph','processing').run(); await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('root-lease','tenant-a','lease graph','processing').run(); });
   afterAll(async () => { await dispose?.(); });
   const graph: TaskGraph = { id:'graph-a',rootTaskId:'root-a',goal:'integration graph',createdAt:new Date().toISOString(),nodes:[{id:'node-a',title:'First node',prompt:'Do work',domain:'general',complexity:1,expectedFormat:'markdown',recommendedTier:1,dependencies:[],contextFrom:[],status:'ready',attemptedModels:[]}] };
   it('persists graph state and enforces tenant isolation',async()=>{await persistGraph(db,'tenant-a',graph,undefined,{owner:'owner-a'});const found=await getPersistedGraph(db,'tenant-a','graph-a');expect(found?.id).toBe('graph-a');expect(found?.nodes[0].id).toBe('node-a');expect(await getPersistedGraph(db,'tenant-b','graph-a')).toBeNull();});

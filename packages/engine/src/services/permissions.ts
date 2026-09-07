@@ -1,12 +1,12 @@
 import { logEvent } from './observability';
 
 export type TenantRole = 'owner' | 'admin' | 'member' | 'viewer';
-export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate' | 'project:read' | 'project:write' | 'project:execute';
+export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate' | 'project:read' | 'project:write' | 'project:execute' | 'github:read';
 
 const ROLE_PERMISSIONS: Record<TenantRole, Permission[]> = {
-  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute'],
-  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute'],
-  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate','project:read','project:write','project:execute'],
+  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read'],
+  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read'],
+  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate','project:read','project:write','project:execute','github:read'],
   viewer: ['graph:read','project:read'],
 };
 

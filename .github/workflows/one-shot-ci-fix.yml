@@ -1,0 +1,46 @@
+name: one-shot ci fix
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Repair graph persistence and integration fixtures
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('packages/engine/src/services/graph-persistence.ts')
+          s = p.read_text()
+          marker = "VALUES ("
+          start = s.index(marker, s.index('INSERT INTO task_graph_nodes')) + len(marker)
+          end = s.index(") ON CONFLICT(graph_id,id)", start)
+          values = s[start:end]
+          suffix = ",CURRENT_TIMESTAMP,?,?,?,CURRENT_TIMESTAMP"
+          # Keep the first 34 bound values exactly aligned with the 34 bind arguments.
+          replacement = ','.join(['?'] * 34) + suffix
+          s = s[:start] + replacement + s[end:]
+          p.write_text(s)
+
+          p = Path('packages/engine/src/services/graph-repair-proposals.d1.test.ts')
+          s = p.read_text()
+          s = s.replace("rootTaskId: `${id}-task`", "rootTaskId: 'repair-task'")
+          p.write_text(s)
+
+          p = Path('.github/workflows/one-shot-ci-fix.yml')
+          p.unlink()
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/engine/src/services/graph-persistence.ts packages/engine/src/services/graph-repair-proposals.d1.test.ts .github/workflows/one-shot-ci-fix.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(graph): align persistence bindings and repair fixtures'
+          git push

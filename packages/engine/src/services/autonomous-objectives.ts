@@ -2,61 +2,15 @@ import type { Env } from '../types';
 import type { TaskGraphPlan } from '@ai-work-partner/shared';
 
 export interface AutonomousObjective {
-  id: string;
-  tenantId: string;
-  name: string;
-  objective: string;
-  plan: TaskGraphPlan;
-  permissions: string[];
-  resources: string[];
-  successCriteria?: string;
-  intervalSeconds: number;
-  nextRunAt: string;
-  enabled: boolean;
-  lastRunAt?: string;
+  id: string; tenantId: string; name: string; objective: string; plan: TaskGraphPlan; projectId?: string;
+  permissions: string[]; resources: string[]; successCriteria?: string; intervalSeconds: number; nextRunAt: string; enabled: boolean; lastRunAt?: string;
 }
-
-export interface AutonomousObjectiveRun {
-  id: string;
-  objectiveId: string;
-  tenantId: string;
-  scheduledFor: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  graphId?: string;
-  workflowInstanceId?: string;
-  error?: string;
-}
-
-function parse<T>(value: string | null | undefined, fallback: T): T { try { return value == null ? fallback : JSON.parse(value) as T; } catch { return fallback; } }
-function toObjective(row: any): AutonomousObjective { return { id: row.id, tenantId: row.tenant_id, name: row.name, objective: row.objective, plan: parse(row.plan_json, { goal: row.objective, nodes: [] }), permissions: parse(row.permissions_json, []), resources: parse(row.resources_json, []), successCriteria: row.success_criteria || undefined, intervalSeconds: row.interval_seconds, nextRunAt: row.next_run_at, enabled: Boolean(row.enabled), lastRunAt: row.last_run_at || undefined }; }
-
-function validateObjectivePlan(plan: TaskGraphPlan, permissions: string[]): void {
-  if (!plan.nodes?.length) throw new Error('Objective requires a non-empty executable graph plan');
-  const allowed = new Set(permissions);
-  for (const node of plan.nodes) {
-    if (node.kind !== 'project-tool') continue;
-    if (node.tool === 'patch' && !allowed.has('project:write')) throw new Error('Objective plan requires project:write permission for patch operations');
-    if (node.tool === 'execute' && !allowed.has('project:execute')) throw new Error('Objective plan requires project:execute permission for execution operations');
-  }
-}
-
-export async function createAutonomousObjective(env: Env, tenantId: string, input: Omit<AutonomousObjective, 'id' | 'tenantId' | 'enabled' | 'lastRunAt'> & { enabled?: boolean }): Promise<AutonomousObjective> {
-  if (!input.name.trim() || !input.objective.trim()) throw new Error('Objective name and objective are required');
-  if (!Number.isInteger(input.intervalSeconds) || input.intervalSeconds < 60) throw new Error('Interval must be at least 60 seconds');
-  validateObjectivePlan(input.plan, input.permissions || []);
-  const next = new Date(input.nextRunAt); if (Number.isNaN(next.getTime())) throw new Error('Invalid nextRunAt');
-  const id = crypto.randomUUID();
-  await env.DB.prepare(`INSERT INTO autonomous_objectives (id,tenant_id,name,objective,plan_json,permissions_json,resources_json,success_criteria,interval_seconds,next_run_at,enabled) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(id, tenantId, input.name.trim(), input.objective.trim(), JSON.stringify(input.plan), JSON.stringify(input.permissions || []), JSON.stringify(input.resources || []), input.successCriteria || null, input.intervalSeconds, next.toISOString(), input.enabled === false ? 0 : 1).run();
-  const row = await env.DB.prepare('SELECT * FROM autonomous_objectives WHERE id=? AND tenant_id=?').bind(id, tenantId).first<any>(); if (!row) throw new Error('Objective was not persisted'); return toObjective(row);
-}
-export async function listAutonomousObjectives(env: Env, tenantId: string): Promise<AutonomousObjective[]> { const rows = await env.DB.prepare('SELECT * FROM autonomous_objectives WHERE tenant_id=? ORDER BY created_at DESC').bind(tenantId).all<any>(); return (rows.results || []).map(toObjective); }
-export async function claimDueObjectives(env: Env, now = new Date()): Promise<Array<{ objective: AutonomousObjective; run: AutonomousObjectiveRun }>> {
-  const nowIso = now.toISOString(); const rows = await env.DB.prepare(`SELECT * FROM autonomous_objectives WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at LIMIT 100`).bind(nowIso).all<any>(); const claimed: Array<{ objective: AutonomousObjective; run: AutonomousObjectiveRun }> = [];
-  for (const row of rows.results || []) { const objective = toObjective(row); const runId = crypto.randomUUID(); const next = new Date(now.getTime() + objective.intervalSeconds * 1000).toISOString(); const update = await env.DB.prepare(`UPDATE autonomous_objectives SET next_run_at=?,last_run_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND enabled=1 AND next_run_at<=?`).bind(next, nowIso, objective.id, objective.tenantId, nowIso).run(); if (!update.meta?.changes) continue; await env.DB.prepare(`INSERT INTO autonomous_objective_runs (id,objective_id,tenant_id,scheduled_for,status) VALUES (?,?,?,?, 'queued')`).bind(runId, objective.id, objective.tenantId, objective.nextRunAt).run(); claimed.push({ objective: { ...objective, nextRunAt: next, lastRunAt: nowIso }, run: { id: runId, objectiveId: objective.id, tenantId: objective.tenantId, scheduledFor: objective.nextRunAt, status: 'queued' } }); }
-  return claimed;
-}
-export async function markObjectiveRun(env: Env, tenantId: string, runId: string, status: AutonomousObjectiveRun['status'], fields: { graphId?: string; workflowInstanceId?: string; error?: string } = {}): Promise<void> {
-  if (!/^[A-Za-z0-9-]{1,100}$/.test(runId)) throw new Error('Invalid objective run id');
-  await env.DB.prepare(`UPDATE autonomous_objective_runs SET status=?,graph_id=COALESCE(?,graph_id),workflow_instance_id=COALESCE(?,workflow_instance_id),error=?,started_at=CASE WHEN ?='running' THEN COALESCE(started_at,CURRENT_TIMESTAMP) ELSE started_at END,completed_at=CASE WHEN ? IN ('completed','failed') THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id=? AND tenant_id=?`).bind(status, fields.graphId || null, fields.workflowInstanceId || null, fields.error || null, status, status, runId, tenantId).run();
-}
-export async function getAutonomousObjective(env: Env, tenantId: string, objectiveId: string): Promise<AutonomousObjective | null> { const row = await env.DB.prepare('SELECT * FROM autonomous_objectives WHERE id=? AND tenant_id=?').bind(objectiveId,tenantId).first<any>(); return row ? toObjective(row) : null; }
+export interface AutonomousObjectiveRun { id: string; objectiveId: string; tenantId: string; scheduledFor: string; status: 'queued'|'running'|'completed'|'failed'; graphId?: string; workflowInstanceId?: string; error?: string; }
+function parse<T>(value:string|null|undefined,fallback:T):T{try{return value==null?fallback:JSON.parse(value) as T}catch{return fallback}}
+function toObjective(row:any):AutonomousObjective{return{id:row.id,tenantId:row.tenant_id,name:row.name,objective:row.objective,plan:parse(row.plan_json,{goal:row.objective,nodes:[]}),projectId:row.project_id||undefined,permissions:parse(row.permissions_json,[]),resources:parse(row.resources_json,[]),successCriteria:row.success_criteria||undefined,intervalSeconds:row.interval_seconds,nextRunAt:row.next_run_at,enabled:Boolean(row.enabled),lastRunAt:row.last_run_at||undefined}}
+function validateObjectivePlan(plan:TaskGraphPlan,permissions:string[]):void{if(!plan.nodes?.length)throw new Error('Objective requires a non-empty executable graph plan');const allowed=new Set(permissions);for(const node of plan.nodes){if(node.kind!=='project-tool')continue;if(node.tool==='patch'&&!allowed.has('project:write'))throw new Error('Objective plan requires project:write permission for patch operations');if(node.tool==='execute'&&!allowed.has('project:execute'))throw new Error('Objective plan requires project:execute permission for execution operations')}}
+export async function createAutonomousObjective(env:Env,tenantId:string,input:Omit<AutonomousObjective,'id'|'tenantId'|'enabled'|'lastRunAt'> & {enabled?:boolean}):Promise<AutonomousObjective>{if(!input.name.trim()||!input.objective.trim())throw new Error('Objective name and objective are required');if(!Number.isInteger(input.intervalSeconds)||input.intervalSeconds<60)throw new Error('Interval must be at least 60 seconds');validateObjectivePlan(input.plan,input.permissions||[]);if(input.projectId&&!/^[A-Za-z0-9_-]{1,100}$/.test(input.projectId))throw new Error('Invalid project id');const next=new Date(input.nextRunAt);if(Number.isNaN(next.getTime()))throw new Error('Invalid nextRunAt');const id=crypto.randomUUID();await env.DB.prepare(`INSERT INTO autonomous_objectives (id,tenant_id,name,objective,plan_json,project_id,permissions_json,resources_json,success_criteria,interval_seconds,next_run_at,enabled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,tenantId,input.name.trim(),input.objective.trim(),JSON.stringify(input.plan),input.projectId||null,JSON.stringify(input.permissions||[]),JSON.stringify(input.resources||[]),input.successCriteria||null,input.intervalSeconds,next.toISOString(),input.enabled===false?0:1).run();const row=await env.DB.prepare('SELECT * FROM autonomous_objectives WHERE id=? AND tenant_id=?').bind(id,tenantId).first<any>();if(!row)throw new Error('Objective was not persisted');return toObjective(row)}
+export async function listAutonomousObjectives(env:Env,tenantId:string):Promise<AutonomousObjective[]>{const rows=await env.DB.prepare('SELECT * FROM autonomous_objectives WHERE tenant_id=? ORDER BY created_at DESC').bind(tenantId).all<any>();return(rows.results||[]).map(toObjective)}
+export async function claimDueObjectives(env:Env,now=new Date()):Promise<Array<{objective:AutonomousObjective;run:AutonomousObjectiveRun}>>{const nowIso=now.toISOString();const rows=await env.DB.prepare(`SELECT * FROM autonomous_objectives WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at LIMIT 100`).bind(nowIso).all<any>();const claimed:Array<{objective:AutonomousObjective;run:AutonomousObjectiveRun}>=[];for(const row of rows.results||[]){const objective=toObjective(row);const runId=crypto.randomUUID();const next=new Date(now.getTime()+objective.intervalSeconds*1000).toISOString();const update=await env.DB.prepare(`UPDATE autonomous_objectives SET next_run_at=?,last_run_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND enabled=1 AND next_run_at<=?`).bind(next,nowIso,objective.id,objective.tenantId,nowIso).run();if(!update.meta?.changes)continue;await env.DB.prepare(`INSERT INTO autonomous_objective_runs (id,objective_id,tenant_id,scheduled_for,status) VALUES (?,?,?,?, 'queued')`).bind(runId,objective.id,objective.tenantId,objective.nextRunAt).run();claimed.push({objective:{...objective,nextRunAt:next,lastRunAt:nowIso},run:{id:runId,objectiveId:objective.id,tenantId:objective.tenantId,scheduledFor:objective.nextRunAt,status:'queued'}})}return claimed}
+export async function markObjectiveRun(env:Env,tenantId:string,runId:string,status:AutonomousObjectiveRun['status'],fields:{graphId?:string;workflowInstanceId?:string;error?:string}={}):Promise<void>{if(!/^[A-Za-z0-9-]{1,100}$/.test(runId))throw new Error('Invalid objective run id');await env.DB.prepare(`UPDATE autonomous_objective_runs SET status=?,graph_id=COALESCE(?,graph_id),workflow_instance_id=COALESCE(?,workflow_instance_id),error=?,started_at=CASE WHEN ?='running' THEN COALESCE(started_at,CURRENT_TIMESTAMP) ELSE started_at END,completed_at=CASE WHEN ? IN ('completed','failed') THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id=? AND tenant_id=?`).bind(status,fields.graphId||null,fields.workflowInstanceId||null,fields.error||null,status,status,runId,tenantId).run()}
+export async function getAutonomousObjective(env:Env,tenantId:string,objectiveId:string):Promise<AutonomousObjective|null>{const row=await env.DB.prepare('SELECT * FROM autonomous_objectives WHERE id=? AND tenant_id=?').bind(objectiveId,tenantId).first<any>();return row?toObjective(row):null}

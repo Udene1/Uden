@@ -11,7 +11,7 @@ export interface TaskNode {
   kind?: TaskNodeKind; tool?: 'tree' | 'read' | 'search' | 'diff' | 'patch' | 'execute'; toolInput?: Record<string, unknown>;
   selectedModel?: string; output?: string; qualityScore?: number; costCents?: number; tokensIn?: number; tokensOut?: number; error?: string;
   approvalRequired?: boolean; approvalState?: ApprovalState; approvalReason?: string; approvedBy?: string; approvedAt?: string;
-  runtimeJobId?: string; verification?: TaskNodeVerification; repairAttempts?: number;
+  runtimeJobId?: string; verification?: TaskNodeVerification; repairAttempts?: number; repairError?: string;
 }
 export interface TaskGraph { id: string; rootTaskId: string; goal: string; projectId?: string; nodes: TaskNode[]; createdAt: string; completedAt?: string; }
 export interface TaskGraphPlan {

@@ -2,6 +2,7 @@
   "name": "@ai-work-partner/engine",
   "version": "1.0.0",
   "private": true,
+  "description": "Uden execution engine",
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",

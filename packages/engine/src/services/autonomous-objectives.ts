@@ -40,10 +40,20 @@ function toObjective(row: any): AutonomousObjective {
   };
 }
 
+function validateObjectivePlan(plan: TaskGraphPlan, permissions: string[]): void {
+  if (!plan.nodes?.length) throw new Error('Objective requires a non-empty executable graph plan');
+  const allowed = new Set(permissions);
+  for (const node of plan.nodes) {
+    if (node.kind !== 'project-tool') continue;
+    if (node.tool === 'patch' && !allowed.has('project:write')) throw new Error('Objective plan requires project:write permission for patch operations');
+    if (node.tool === 'execute' && !allowed.has('project:execute')) throw new Error('Objective plan requires project:execute permission for execution operations');
+  }
+}
+
 export async function createAutonomousObjective(env: Env, tenantId: string, input: Omit<AutonomousObjective, 'id' | 'tenantId' | 'enabled' | 'lastRunAt'> & { enabled?: boolean }): Promise<AutonomousObjective> {
   if (!input.name.trim() || !input.objective.trim()) throw new Error('Objective name and objective are required');
   if (!Number.isInteger(input.intervalSeconds) || input.intervalSeconds < 60) throw new Error('Interval must be at least 60 seconds');
-  if (!input.plan.nodes?.length) throw new Error('Objective requires a non-empty executable graph plan');
+  validateObjectivePlan(input.plan, input.permissions || []);
   const next = new Date(input.nextRunAt);
   if (Number.isNaN(next.getTime())) throw new Error('Invalid nextRunAt');
   const id = crypto.randomUUID();

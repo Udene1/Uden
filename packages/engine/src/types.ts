@@ -1,13 +1,15 @@
 import { Tenant } from '@ai-work-partner/shared';
 
 export interface GraphExecutionQueueMessage { type?: 'graph'; tenantId: string; graphId: string; enqueuedAt: string; }
-export interface AutonomousObjectiveQueueMessage { type: 'autonomous-objective'; tenantId: string; objectiveId: string; runId: string; enqueuedAt: string; }
+export interface AutonomousObjectiveQueueMessage { type?: 'autonomous-objective'; tenantId: string; objectiveId: string; runId: string; enqueuedAt: string; }
 export type TaskExecutionQueueMessage = GraphExecutionQueueMessage | AutonomousObjectiveQueueMessage;
+export interface WorkflowBinding { create(options?: { id?: string; params?: unknown }): Promise<{ id: string }>; }
 export interface Env {
   DB: D1Database;
   CACHE_KV: KVNamespace;
   Sandbox?: DurableObjectNamespace;
   TASK_GRAPH_QUEUE?: Queue<TaskExecutionQueueMessage>;
+  AUTONOMOUS_OBJECTIVE_WORKFLOW?: WorkflowBinding;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   GEMINI_API_KEY?: string;

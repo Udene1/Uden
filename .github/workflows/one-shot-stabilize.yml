@@ -1,6 +1,7 @@
 name: one-shot graph stabilization
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: write
 jobs:

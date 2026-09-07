@@ -6,6 +6,7 @@ export type TaskExecutionQueueMessage = GraphExecutionQueueMessage | AutonomousO
 export interface Env {
   DB: D1Database;
   CACHE_KV: KVNamespace;
+  Sandbox: DurableObjectNamespace;
   TASK_GRAPH_QUEUE?: Queue<TaskExecutionQueueMessage>;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;

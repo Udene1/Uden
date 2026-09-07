@@ -3,9 +3,12 @@ import type { Env } from '../types';
 const MAX_FILE_BYTES = 500_000;
 const MAX_FILES = 200;
 const MAX_OUTPUT = 100_000;
+const MAX_SEARCH_RESULTS = 100;
+const MAX_SEARCH_QUERY = 200;
 
 export interface ProjectFile { path: string; content: string; version: number; contentSha256: string; }
 export interface RuntimeResult { jobId: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; exitCode?: number; output?: string; }
+export interface ProjectSearchMatch { path: string; line: number; text: string; }
 
 function requireRuntime(env: Env): { url: string; secret: string } {
   if (!env.PROJECT_RUNTIME_URL || !env.PROJECT_RUNTIME_SECRET) throw new Error('Project runtime is not configured');
@@ -29,6 +32,24 @@ function validatePath(path: string): string {
 export async function listProjectFiles(env: Env, tenantId: string, projectId: string): Promise<ProjectFile[]> {
   const result = await env.DB.prepare('SELECT path,content,version,content_sha256 FROM project_files WHERE tenant_id=? AND project_id=? ORDER BY path LIMIT ?').bind(tenantId, projectId, MAX_FILES).all<{ path: string; content: string; version: number; content_sha256: string }>();
   return (result.results || []).map(row => ({ path: row.path, content: row.content, version: row.version, contentSha256: row.content_sha256 }));
+}
+
+export async function searchProjectFiles(env: Env, tenantId: string, projectId: string, query: string): Promise<ProjectSearchMatch[]> {
+  const needle = query.trim();
+  if (!needle || needle.length > MAX_SEARCH_QUERY) throw new Error('Invalid project search query');
+  const result = await env.DB.prepare('SELECT path,content FROM project_files WHERE tenant_id=? AND project_id=? ORDER BY path LIMIT ?').bind(tenantId, projectId, MAX_FILES).all<{ path: string; content: string }>();
+  const matches: ProjectSearchMatch[] = [];
+  const lowerNeedle = needle.toLowerCase();
+  for (const file of result.results || []) {
+    const lines = file.content.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      if (lines[index].toLowerCase().includes(lowerNeedle)) {
+        matches.push({ path: file.path, line: index + 1, text: lines[index].slice(0, 1_000) });
+        if (matches.length >= MAX_SEARCH_RESULTS) return matches;
+      }
+    }
+  }
+  return matches;
 }
 
 export async function upsertProjectFile(env: Env, tenantId: string, projectId: string, path: string, content: string, expectedVersion?: number): Promise<ProjectFile> {

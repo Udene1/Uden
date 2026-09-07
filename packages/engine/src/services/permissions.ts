@@ -1,19 +1,19 @@
 import { logEvent } from './observability';
 
 export type TenantRole = 'owner' | 'admin' | 'member' | 'viewer';
-export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read';
+export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate';
 
 const ROLE_PERMISSIONS: Record<TenantRole, Permission[]> = {
-  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read'],
-  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read'],
-  member: ['graph:execute','graph:resume','graph:read'],
+  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate'],
+  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate'],
+  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate'],
   viewer: ['graph:read'],
 };
 
 export async function hasPermission(db: D1Database, tenantId: string, permission: Permission, subject = 'tenant-api-key'): Promise<boolean> {
   const row = await db.prepare('SELECT role FROM tenant_members WHERE tenant_id=? AND subject=?').bind(tenantId, subject).first<{role: TenantRole}>();
-  const role = row?.role || 'owner';
-  return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+  const role = row?.role;
+  return role ? (ROLE_PERMISSIONS[role]?.includes(permission) ?? false) : false;
 }
 
 export async function requirePermission(db: D1Database, tenantId: string, permission: Permission, subject?: string): Promise<void> {

@@ -4,13 +4,14 @@ export type TaskNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'fa
 export type ApprovalState = 'not-required' | 'pending' | 'approved' | 'rejected';
 export type TaskNodeKind = 'model' | 'project-tool';
 
+export interface TaskNodeVerification { passed: boolean; reason: string; checkedAt: string; }
 export interface TaskNode {
   id: string; title: string; prompt: string; domain: TaskDomain; complexity: number; expectedFormat: OutputFormat;
   recommendedTier: ModelTier; dependencies: string[]; status: TaskNodeStatus; contextFrom: string[]; attemptedModels: string[];
   kind?: TaskNodeKind; tool?: 'tree' | 'read' | 'search' | 'diff' | 'patch' | 'execute'; toolInput?: Record<string, unknown>;
   selectedModel?: string; output?: string; qualityScore?: number; costCents?: number; tokensIn?: number; tokensOut?: number; error?: string;
   approvalRequired?: boolean; approvalState?: ApprovalState; approvalReason?: string; approvedBy?: string; approvedAt?: string;
-  runtimeJobId?: string;
+  runtimeJobId?: string; verification?: TaskNodeVerification; repairAttempts?: number;
 }
 export interface TaskGraph { id: string; rootTaskId: string; goal: string; projectId?: string; nodes: TaskNode[]; createdAt: string; completedAt?: string; }
 export interface TaskGraphPlan {

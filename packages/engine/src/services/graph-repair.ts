@@ -20,7 +20,7 @@ export function canRepair(node: TaskNode): boolean {
   return node.kind === 'project-tool' && node.tool === 'execute' && (node.repairAttempts || 0) < MAX_GRAPH_REPAIR_ATTEMPTS;
 }
 
-function parsePatchDocument(value: string): Array<{ path: string; content: string }> {
+export function parseRepairPatchDocument(value: string): Array<{ path: string; content: string }> {
   const trimmed = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   let parsed: unknown;
   try { parsed = JSON.parse(trimmed); } catch { throw new Error('Repair model did not return a valid patch document'); }
@@ -80,7 +80,7 @@ export async function buildRepairProposal(
     existingContext: `Execution output:\n${node.output || '(none)'}\n\nVerification:\n${failure}`,
   });
   const generatedText = typeof generated.result === 'string' ? generated.result : JSON.stringify(generated.result);
-  const files = await versionPatch(env, tenantId, projectId, parsePatchDocument(generatedText));
+  const files = await versionPatch(env, tenantId, projectId, parseRepairPatchDocument(generatedText));
   return {
     attempted: true,
     exhausted: false,

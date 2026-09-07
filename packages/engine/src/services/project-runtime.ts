@@ -7,7 +7,8 @@ const MAX_SEARCH_RESULTS = 100;
 const MAX_SEARCH_QUERY = 200;
 
 export interface ProjectFile { path: string; content: string; version: number; contentSha256: string; }
-export interface RuntimeResult { jobId: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; exitCode?: number; output?: string; }
+export type RuntimeStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export interface RuntimeResult { jobId: string; status: RuntimeStatus; exitCode?: number; output?: string; }
 export interface ProjectSearchMatch { path: string; line: number; text: string; }
 
 function requireRuntime(env: Env): { url: string; secret: string } {
@@ -65,17 +66,26 @@ export async function upsertProjectFile(env: Env, tenantId: string, projectId: s
   return { path: safePath, content, version, contentSha256 };
 }
 
-export async function runProjectCommand(env: Env, tenantId: string, projectId: string, command: string, files: ProjectFile[]): Promise<RuntimeResult> {
+async function signedRequest(env: Env, method: 'GET' | 'POST', path: string, payload?: string): Promise<RuntimeResult> {
   const runtime = requireRuntime(env);
-  const safeCommand = command.trim();
-  if (!safeCommand || safeCommand.length > 2_000 || /[\r\n]/.test(safeCommand)) throw new Error('Invalid project runtime command');
-  if (files.length > MAX_FILES) throw new Error('Too many project files');
-  const payload = JSON.stringify({ tenantId, projectId, command: safeCommand, files: files.map(file => ({ path: validatePath(file.path), content: file.content })) });
   const timestamp = String(Date.now());
-  const signature = await sign(`${timestamp}.${payload}`, runtime.secret);
-  const response = await fetch(`${runtime.url}/v1/projects/run`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-uden-timestamp': timestamp, 'x-uden-signature': signature }, body: payload });
-  if (!response.ok) throw new Error('Project runtime execution failed');
+  const body = payload ?? '';
+  const signature = await sign(`${timestamp}.${body}`, runtime.secret);
+  const response = await fetch(`${runtime.url}${path}`, { method, headers: { ...(method === 'POST' ? { 'content-type': 'application/json' } : {}), 'x-uden-timestamp': timestamp, 'x-uden-signature': signature }, ...(method === 'POST' ? { body } : {}) });
+  if (!response.ok) throw new Error('Project runtime request failed');
   const result = await response.json() as RuntimeResult;
   if (!result.jobId || !['queued','running','succeeded','failed'].includes(result.status)) throw new Error('Project runtime returned an invalid result');
   return { ...result, output: result.output?.slice(0, MAX_OUTPUT) };
+}
+
+export async function runProjectCommand(env: Env, tenantId: string, projectId: string, command: string, files: ProjectFile[]): Promise<RuntimeResult> {
+  const safeCommand = command.trim();
+  if (!safeCommand || safeCommand.length > 2_000 || /[\r\n]/.test(safeCommand)) throw new Error('Invalid project runtime command');
+  if (files.length > MAX_FILES) throw new Error('Too many project files');
+  return signedRequest(env, 'POST', '/v1/projects/run', JSON.stringify({ tenantId, projectId, command: safeCommand, files: files.map(file => ({ path: validatePath(file.path), content: file.content })) }));
+}
+
+export async function getProjectRuntimeJob(env: Env, tenantId: string, projectId: string, jobId: string): Promise<RuntimeResult> {
+  if (!/^[A-Za-z0-9._:-]{1,200}$/.test(jobId)) throw new Error('Invalid project runtime job id');
+  return signedRequest(env, 'GET', `/v1/projects/jobs/${encodeURIComponent(jobId)}?tenantId=${encodeURIComponent(tenantId)}&projectId=${encodeURIComponent(projectId)}`, `${tenantId}.${projectId}.${jobId}`);
 }

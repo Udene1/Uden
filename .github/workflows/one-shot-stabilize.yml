@@ -1,0 +1,48 @@
+name: one-shot graph stabilization
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  stabilize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fix graph persistence and test config
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('packages/engine/src/services/graph-persistence.ts')
+          s = p.read_text()
+          old = 'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?,?,?,CURRENT_TIMESTAMP)'
+          new = 'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?,?,?,CURRENT_TIMESTAMP)'
+          if old not in s:
+              raise SystemExit('graph persistence VALUES pattern not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('packages/engine/src/services/graph-repair.ts')
+          s = p.read_text()
+          old = "return node.kind === 'project-tool' && node.tool === 'execute' && (node.repairAttempts || 0) < MAX_GRAPH_REPAIR_ATTEMPTS;"
+          new = "return node.status === 'failed' && node.kind === 'project-tool' && node.tool === 'execute' && (node.repairAttempts || 0) < MAX_GRAPH_REPAIR_ATTEMPTS;"
+          if old not in s:
+              raise SystemExit('canRepair pattern not found')
+          p.write_text(s.replace(old, new, 1))
+
+          for p in Path('packages/engine/src/services').glob('*.d1.test.ts'):
+              s = p.read_text()
+              if "configPath: resolve(engineRoot, 'wrangler.jsonc')" in s:
+                  p.write_text(s.replace("configPath: resolve(engineRoot, 'wrangler.jsonc')", "configPath: resolve(engineRoot, 'wrangler.test.jsonc')"))
+
+          p = Path('.github/workflows/one-shot-stabilize.yml')
+          p.unlink()
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/engine/src/services/graph-persistence.ts packages/engine/src/services/graph-repair.ts packages/engine/src/services/*.d1.test.ts .github/workflows/one-shot-stabilize.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(graph): stabilize D1 persistence and repair gating'
+          git push

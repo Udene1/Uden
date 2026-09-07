@@ -4,45 +4,20 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-07",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": {
-    "enabled": true,
-    "logs": { "enabled": true, "head_sampling_rate": 1 },
-    "traces": { "enabled": true, "head_sampling_rate": 0.1 }
-  },
-  "triggers": {
-    "crons": ["* * * * *"]
-  },
+  "observability": { "enabled": true, "logs": { "enabled": true, "head_sampling_rate": 1 }, "traces": { "enabled": true, "head_sampling_rate": 0.1 } },
+  "triggers": { "crons": ["* * * * *"] },
+  "workflows": [
+    { "name": "uden-autonomous-objective", "binding": "AUTONOMOUS_OBJECTIVE_WORKFLOW", "class_name": "AutonomousObjectiveWorkflow", "limits": { "steps": 10000 } }
+  ],
   "containers": [
-    {
-      "class_name": "Sandbox",
-      "image": "./Dockerfile",
-      "instance_type": "lite",
-      "max_instances": 5
-    }
+    { "class_name": "Sandbox", "image": "./Dockerfile", "instance_type": "lite", "max_instances": 5 }
   ],
-  "durable_objects": {
-    "bindings": [
-      { "name": "Sandbox", "class_name": "Sandbox" }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "sandbox-v1",
-      "new_sqlite_classes": ["Sandbox"]
-    }
-  ],
-  "d1_databases": [
-    { "binding": "DB", "database_name": "ai-work-partner-db", "database_id": "00000000-0000-0000-0000-000000000000" }
-  ],
-  "kv_namespaces": [
-    { "binding": "CACHE_KV", "id": "00000000-0000-0000-0000-000000000000" }
-  ],
+  "durable_objects": { "bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }] },
+  "migrations": [{ "tag": "sandbox-v1", "new_sqlite_classes": ["Sandbox"] }],
+  "d1_databases": [{ "binding": "DB", "database_name": "ai-work-partner-db", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "kv_namespaces": [{ "binding": "CACHE_KV", "id": "00000000-0000-0000-0000-000000000000" }],
   "queues": {
-    "producers": [
-      { "binding": "TASK_GRAPH_QUEUE", "queue": "uden-task-graphs" }
-    ],
-    "consumers": [
-      { "queue": "uden-task-graphs", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 8, "retry_delay": 30, "dead_letter_queue": "uden-task-graphs-dlq", "max_concurrency": 5 }
-    ]
+    "producers": [{ "binding": "TASK_GRAPH_QUEUE", "queue": "uden-task-graphs" }],
+    "consumers": [{ "queue": "uden-task-graphs", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 8, "retry_delay": 30, "dead_letter_queue": "uden-task-graphs-dlq", "max_concurrency": 5 }]
   }
 }

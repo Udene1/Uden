@@ -1,3 +1,4 @@
+# temporary one-shot repair automation; self-deletes after applying real fixes
 name: fix graph ci
 on:
   push:
@@ -14,28 +15,22 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
           p = Path('packages/engine/src/services/graph-executor.ts')
           s = p.read_text()
           old = "export function gateGraphNodeForApproval(node: TaskNode): boolean { if (!requiresApproval(node) || node.approvalState === 'approved') return false;"
           new = "export function gateGraphNodeForApproval(node: TaskNode): boolean { if (!requiresApproval(node) || node.approvalState === 'approved' || node.status === 'awaiting-approval') return false;"
-          if old not in s:
-              raise SystemExit('approval gate target not found')
+          if old not in s: raise SystemExit('approval gate target not found')
           p.write_text(s.replace(old, new, 1))
-
           p = Path('packages/engine/src/services/graph-repair-proposals.d1.test.ts')
           s = p.read_text()
           old = "rootTaskId: 'repair-task'"
-          if old not in s:
-              raise SystemExit('repair graph fixture target not found')
+          if old not in s: raise SystemExit('repair graph fixture target not found')
           s = s.replace(old, "rootTaskId: `${id}-task`", 1)
           old_setup = "await db.prepare('INSERT INTO tasks (id,tenant_id,prompt,status,mode,escalation_count,created_at) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)').bind('repair-task','repair-tenant','repair project','processing','permissionless',0).run();"
-          if old_setup not in s:
-              raise SystemExit('repair task setup target not found')
+          if old_setup not in s: raise SystemExit('repair task setup target not found')
           new_setup = "for (const id of ['repair-graph','repair-gated','repair-apply','repair-stale']) await db.prepare('INSERT INTO tasks (id,tenant_id,prompt,status,mode,escalation_count,created_at) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)').bind(`${id}-task`,'repair-tenant','repair project','processing','permissionless',0).run();"
           s = s.replace(old_setup, new_setup, 1)
           p.write_text(s)
-
           Path('.github/workflows/fix-graph-ci.yml').unlink()
       - name: Commit
         run: |

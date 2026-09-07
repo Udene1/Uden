@@ -1,6 +1,9 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
 import type { D1Database } from '@cloudflare/workers-types';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { persistGraph, getPersistedGraph } from './graph-persistence';
 import { gateGraphNodeForApproval } from './graph-executor';
 import { requestGraphNodeApproval, approveGraphNode, rejectGraphNode } from './graph-approvals';

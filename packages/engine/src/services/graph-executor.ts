@@ -41,6 +41,7 @@ export function gateGraphNodeForApproval(node: TaskNode): boolean { if (!require
 
 function isRuntimeResult(value: unknown): value is RuntimeResult { if (!value || typeof value !== 'object') return false; const candidate = value as RuntimeResult; return typeof candidate.jobId === 'string' && ['queued','running','succeeded','failed'].includes(candidate.status); }
 
+function nodeSuccessCriteria(node:TaskNode):string|undefined{const value=(node.toolInput as Record<string,unknown>|undefined)?.successCriteria;return typeof value==='string'&&value.trim()?value.trim():undefined}
 async function executeProjectToolNode(env: HonoEnv['Bindings'], graph: TaskGraph, node: TaskNode, tenantId: string, persist: (status?: string, error?: string) => Promise<void>): Promise<void> {
   const projectId = graphProjectId(env, graph); if (!projectId) throw new Error('Project tool node requires a project-backed graph');
   try {
@@ -49,9 +50,9 @@ async function executeProjectToolNode(env: HonoEnv['Bindings'], graph: TaskGraph
     if (node.tool === 'execute' && isRuntimeResult(result)) {
       node.runtimeJobId = result.jobId; node.output = result.output || JSON.stringify(result);
       if (result.status === 'queued' || result.status === 'running') { node.error = undefined; setNodeStatus(node, 'awaiting-runtime'); await persist('awaiting-runtime'); return; }
-      if (result.status === 'failed') { node.verification = verifyRuntimeResult(result); node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; }
+      if (result.status === 'failed') { node.verification = verifyRuntimeResult(result,nodeSuccessCriteria(node)); node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; }
     }
-    if (node.tool === 'execute' && isRuntimeResult(result)) { node.verification = verifyRuntimeResult(result); if (!node.verification.passed) { node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; } } node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running');
+    if (node.tool === 'execute' && isRuntimeResult(result)) { node.verification = verifyRuntimeResult(result,nodeSuccessCriteria(node)); if (!node.verification.passed) { node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; } } node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running');
   } catch (error) { const safe = sanitizeProviderError('project-runtime', error); node.error = safe.message; setNodeStatus(node, 'failed'); await persist('failed', safe.message); }
 }
 
@@ -103,8 +104,8 @@ async function resumeRuntimeJobs(env: HonoEnv['Bindings'], tenantId: string, gra
     try {
       const result = await getProjectRuntimeJob(env, tenantId, projectId, node.runtimeJobId);
       node.output = result.output || node.output;
-      if (result.status === 'succeeded') { node.verification = verifyRuntimeResult(result); if (node.verification.passed) { node.error = undefined; node.qualityScore = 1; node.status = 'completed'; } else { node.error = node.verification.reason; node.status = 'failed'; } }
-      else if (result.status === 'failed') { node.verification = verifyRuntimeResult(result); node.error = node.verification.reason; node.status = 'failed'; }
+      if (result.status === 'succeeded') { node.verification = verifyRuntimeResult(result,nodeSuccessCriteria(node)); if (node.verification.passed) { node.error = undefined; node.qualityScore = 1; node.status = 'completed'; } else { node.error = node.verification.reason; node.status = 'failed'; } }
+      else if (result.status === 'failed') { node.verification = verifyRuntimeResult(result,nodeSuccessCriteria(node)); node.error = node.verification.reason; node.status = 'failed'; }
       else { node.error = undefined; node.status = 'awaiting-runtime'; }
     } catch (error) { const safe = sanitizeProviderError('project-runtime', error); node.error = safe.message; node.status = 'awaiting-runtime'; }
   }

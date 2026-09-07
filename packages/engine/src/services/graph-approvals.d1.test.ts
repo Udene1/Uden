@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { persistGraph, getPersistedGraph } from './graph-persistence';
+import { gateGraphNodeForApproval } from './graph-executor';
 import { requestGraphNodeApproval, approveGraphNode, rejectGraphNode } from './graph-approvals';
 import type { TaskGraph } from '@ai-work-partner/shared';
 
@@ -34,5 +35,11 @@ describe('graph approvals D1 integration', () => {
     await requestGraphNodeApproval(db, 'approval-tenant', graph.id, 'change');
     const rejected = await rejectGraphNode(db, 'approval-tenant', graph.id, 'change', 'admin@example.test', 'Not safe');
     expect(rejected.nodes[0].status).toBe('failed'); expect(rejected.nodes[0].approvalState).toBe('rejected'); expect(rejected.nodes[0].error).toBe('Not safe');
+  });
+  it('automatically gates a mutation tool before execution', async () => {
+    const node: TaskGraph['nodes'][number] = { id: 'patch', title: 'Apply change', prompt: 'apply patch', domain: 'code', complexity: 1, expectedFormat: 'code', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [], kind: 'project-tool', tool: 'patch', toolInput: { files: [] } };
+    expect(gateGraphNodeForApproval(node)).toBe(true); expect(node.status).toBe('awaiting-approval'); expect(node.approvalRequired).toBe(true); expect(node.approvalState).toBe('pending');
+    expect(gateGraphNodeForApproval(node)).toBe(false);
+    node.approvalState = 'approved'; node.status = 'ready'; expect(gateGraphNodeForApproval(node)).toBe(false); expect(node.status).toBe('ready');
   });
 });

@@ -24,11 +24,12 @@ describe('graph runtime linkage D1 integration', () => {
     await execSqlFile(db, resolve(root, 'migrations/0003_graph_durable_execution.sql'));
     await execSqlFile(db, resolve(root, 'migrations/0010_graph_node_approvals.sql'));
     await execSqlFile(db, resolve(root, 'migrations/0011_runtime_job_linkage.sql'));
+    await execSqlFile(db, resolve(root, 'migrations/0012_graph_node_tool_persistence.sql'));
     await db.prepare('INSERT INTO tenants (id,name,email,api_key_hash) VALUES (?,?,?,?)').bind('runtime-tenant','Runtime Tenant','runtime@example.test','runtime-hash').run();
   });
   afterAll(async () => { await dispose?.(); });
 
-  it('round-trips a runtime job id without losing approval or execution state', async () => {
+  it('round-trips runtime, approval, and project-tool state without losing durable execution metadata', async () => {
     const graph: TaskGraph = {
       id: 'runtime-graph', rootTaskId: 'runtime-task', goal: 'run project tests', projectId: 'project-1', createdAt: new Date().toISOString(),
       nodes: [{ id: 'execute', title: 'Run tests', prompt: 'npm test', domain: 'code', complexity: 1, expectedFormat: 'text', recommendedTier: 1,
@@ -42,5 +43,8 @@ describe('graph runtime linkage D1 integration', () => {
     expect(persisted?.nodes[0].status).toBe('awaiting-runtime');
     expect(persisted?.nodes[0].runtimeJobId).toBe('job-123');
     expect(persisted?.nodes[0].approvalState).toBe('approved');
+    expect(persisted?.nodes[0].kind).toBe('project-tool');
+    expect(persisted?.nodes[0].tool).toBe('execute');
+    expect(persisted?.nodes[0].toolInput).toEqual({ command: 'npm test' });
   });
 });

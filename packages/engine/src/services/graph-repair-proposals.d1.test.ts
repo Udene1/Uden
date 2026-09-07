@@ -12,7 +12,7 @@ import type { TaskGraph } from '@ai-work-partner/shared';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const execSqlFile = async (db: D1Database, path: string) => { const sql = await readFile(path, 'utf8'); for (const statement of sql.replace(/^\uFEFF/, '').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '').split(';').map(s => s.trim()).filter(Boolean)) await db.prepare(statement).run(); };
-const makeGraph = (id: string): TaskGraph => ({ id, rootTaskId: `${id}-task`, goal: 'repair project', projectId: 'repair-project', createdAt: new Date().toISOString(), nodes: [{ id: 'execute', title: 'Run tests', prompt: 'npm test', domain: 'code', complexity: 1, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'awaiting-approval', attemptedModels: [], kind: 'project-tool', tool: 'execute', toolInput: { command: 'npm test' }, approvalRequired: true, approvalState: 'pending', repairAttempts: 1, output: 'exit code 1' }] });
+const makeGraph = (id: string): TaskGraph => ({ id, rootTaskId: 'repair-task', goal: 'repair project', projectId: 'repair-project', createdAt: new Date().toISOString(), nodes: [{ id: 'execute', title: 'Run tests', prompt: 'npm test', domain: 'code', complexity: 1, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'awaiting-approval', attemptedModels: [], kind: 'project-tool', tool: 'execute', toolInput: { command: 'npm test' }, approvalRequired: true, approvalState: 'pending', repairAttempts: 1, output: 'exit code 1' }] });
 
 describe('graph repair proposals D1 integration', () => {
   let db: D1Database; let dispose: (() => Promise<void>) | undefined;

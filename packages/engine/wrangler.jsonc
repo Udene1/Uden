@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ai-work-partner-engine",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-01",
+  "compatibility_date": "2026-09-07",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
@@ -12,6 +12,25 @@
   "triggers": {
     "crons": ["* * * * *"]
   },
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 5
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "Sandbox", "class_name": "Sandbox" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "sandbox-v1",
+      "new_sqlite_classes": ["Sandbox"]
+    }
+  ],
   "d1_databases": [
     { "binding": "DB", "database_name": "ai-work-partner-db", "database_id": "00000000-0000-0000-0000-000000000000" }
   ],

@@ -1,0 +1,61 @@
+name: Wire graph runtime verification
+
+on:
+  push:
+    paths:
+      - '.github/workflows/wire-graph-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: "!contains(github.event.head_commit.message, '[graph-runtime-wire]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wire verification and durable failure recovery
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('packages/engine/src/services/graph-executor.ts')
+          text = path.read_text()
+
+          old = "import { getProjectRuntimeJob } from './project-runtime';"
+          new = old + "\nimport { verifyRuntimeResult } from './graph-verification';"
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = "if (result.status === 'failed') { node.error = result.output || 'Project runtime execution failed'; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; }"
+          new = "if (result.status === 'failed') { node.verification = verifyRuntimeResult(result); node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; }"
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = "node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running');"
+          new = "if (node.tool === 'execute' && isRuntimeResult(result)) { node.verification = verifyRuntimeResult(result); if (!node.verification.passed) { node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; } } node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running');"
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = "if (result.status === 'succeeded') { node.error = undefined; node.qualityScore = 1; node.status = 'completed'; }\n      else if (result.status === 'failed') { node.error = result.output || 'Project runtime execution failed'; node.status = 'failed'; }"
+          new = "if (result.status === 'succeeded') { node.verification = verifyRuntimeResult(result); if (node.verification.passed) { node.error = undefined; node.qualityScore = 1; node.status = 'completed'; } else { node.error = node.verification.reason; node.status = 'failed'; } }\n      else if (result.status === 'failed') { node.verification = verifyRuntimeResult(result); node.error = node.verification.reason; node.status = 'failed'; }"
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = "for (const node of graph.nodes) { if (node.status === 'running' || node.status === 'failed' || node.status === 'blocked') { if (node.approvalState === 'pending') node.status = 'awaiting-approval'; else { node.status = node.dependencies.length === 0 ? 'ready' : 'pending'; node.error = 'Recovered for retry after interrupted or failed execution'; } } }"
+          new = "for (const node of graph.nodes) { if (node.status === 'running' || node.status === 'blocked') { if (node.approvalState === 'pending') node.status = 'awaiting-approval'; else { node.status = node.dependencies.length === 0 ? 'ready' : 'pending'; node.error = 'Recovered for retry after interrupted execution'; } } else if (node.status === 'failed' && node.approvalState === 'pending') { node.status = 'awaiting-approval'; } }"
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          path.write_text(text)
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/engine/src/services/graph-executor.ts
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: wire graph runtime verification [graph-runtime-wire]'
+          git pull --rebase origin main
+          git push origin HEAD:main

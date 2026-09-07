@@ -1,6 +1,6 @@
 import type { ModelTier, OutputFormat, QualityPreference, TaskDomain } from './types';
 
-export type TaskNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting-approval';
+export type TaskNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting-approval' | 'awaiting-runtime';
 export type ApprovalState = 'not-required' | 'pending' | 'approved' | 'rejected';
 export type TaskNodeKind = 'model' | 'project-tool';
 
@@ -10,6 +10,7 @@ export interface TaskNode {
   kind?: TaskNodeKind; tool?: 'tree' | 'read' | 'search' | 'diff' | 'patch' | 'execute'; toolInput?: Record<string, unknown>;
   selectedModel?: string; output?: string; qualityScore?: number; costCents?: number; tokensIn?: number; tokensOut?: number; error?: string;
   approvalRequired?: boolean; approvalState?: ApprovalState; approvalReason?: string; approvedBy?: string; approvedAt?: string;
+  runtimeJobId?: string;
 }
 export interface TaskGraph { id: string; rootTaskId: string; goal: string; projectId?: string; nodes: TaskNode[]; createdAt: string; completedAt?: string; }
 export interface TaskGraphPlan {

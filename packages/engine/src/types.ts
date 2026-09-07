@@ -1,10 +1,12 @@
 import { Tenant } from '@ai-work-partner/shared';
 
-export interface GraphExecutionQueueMessage { tenantId: string; graphId: string; enqueuedAt: string; }
+export interface GraphExecutionQueueMessage { type?: 'graph'; tenantId: string; graphId: string; enqueuedAt: string; }
+export interface AutonomousObjectiveQueueMessage { type: 'autonomous-objective'; tenantId: string; objectiveId: string; runId: string; enqueuedAt: string; }
+export type TaskExecutionQueueMessage = GraphExecutionQueueMessage | AutonomousObjectiveQueueMessage;
 export interface Env {
   DB: D1Database;
   CACHE_KV: KVNamespace;
-  TASK_GRAPH_QUEUE?: Queue<GraphExecutionQueueMessage>;
+  TASK_GRAPH_QUEUE?: Queue<TaskExecutionQueueMessage>;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   GEMINI_API_KEY?: string;

@@ -16,16 +16,8 @@ const migrationPath = (name: string) => resolve(engineRoot, 'migrations', name);
 
 const execSqlFile = async (db: D1Database, path: string) => {
   const sql = await readFile(path, 'utf8');
-  const statements = sql
-    .replace(/^\uFEFF/, '')
-    .replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '')
-    .split(';')
-    .map(statement => statement.trim())
-    .filter(Boolean);
-
-  for (const statement of statements) {
-    await db.prepare(statement).run();
-  }
+  const statements = sql.replace(/^\uFEFF/, '').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '').split(';').map(statement => statement.trim()).filter(Boolean);
+  for (const statement of statements) await db.prepare(statement).run();
 };
 
 describe('graph reliability D1 integration', () => {
@@ -39,8 +31,7 @@ describe('graph reliability D1 integration', () => {
     env.DB = db;
     dispose = platform.dispose;
     await execSqlFile(db, schemaPath);
-    await execSqlFile(db, migrationPath('0003_graph_durable_execution.sql'));
-    await execSqlFile(db, migrationPath('0004_budget_reservations.sql'));
+    for (const migration of ['0003_graph_durable_execution.sql','0004_budget_reservations.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql']) await execSqlFile(db, migrationPath(migration));
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant','Reliability','r@example.test','reliability-hash',10).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-root','reliability-tenant','dependency graph test','processing').run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('reliability-crash-root','reliability-tenant','recovery test','processing').run();

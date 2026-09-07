@@ -12,5 +12,9 @@ export interface Env {
   DEEPSEEK_API_KEY?: string;
   ALERT_WEBHOOK_URL?: string;
   ALLOWED_ORIGINS?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
+  GOOGLE_TOKEN_ENCRYPTION_KEY?: string;
 }
 export type HonoEnv = { Bindings: Env; Variables: { tenant: Tenant; tenantId: string; requestId: string; }; };

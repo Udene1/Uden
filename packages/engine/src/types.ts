@@ -1,31 +1,7 @@
 import { Tenant } from '@ai-work-partner/shared';
-
-export interface GraphExecutionQueueMessage { type?: 'graph'; tenantId: string; graphId: string; enqueuedAt: string; }
-export interface AutonomousObjectiveQueueMessage { type?: 'autonomous-objective'; tenantId: string; objectiveId: string; runId: string; enqueuedAt: string; }
+export interface GraphExecutionQueueMessage { type?: 'graph'; tenantId:string; graphId:string; executionPrincipal?:string; enqueuedAt:string; }
+export interface AutonomousObjectiveQueueMessage { type?: 'autonomous-objective'; tenantId:string; objectiveId:string; runId:string; enqueuedAt:string; }
 export type TaskExecutionQueueMessage = GraphExecutionQueueMessage | AutonomousObjectiveQueueMessage;
-export interface WorkflowBinding { create(options?: { id?: string; params?: unknown }): Promise<{ id: string }>; }
-export interface Env {
-  DB: D1Database;
-  CACHE_KV: KVNamespace;
-  Sandbox?: DurableObjectNamespace;
-  TASK_GRAPH_QUEUE?: Queue<TaskExecutionQueueMessage>;
-  AUTONOMOUS_OBJECTIVE_WORKFLOW?: WorkflowBinding;
-  OPENAI_API_KEY?: string;
-  ANTHROPIC_API_KEY?: string;
-  GEMINI_API_KEY?: string;
-  GOOGLE_AI_API_KEY?: string;
-  DEEPSEEK_API_KEY?: string;
-  ALERT_WEBHOOK_URL?: string;
-  ALLOWED_ORIGINS?: string;
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-  GOOGLE_REDIRECT_URI?: string;
-  GOOGLE_TOKEN_ENCRYPTION_KEY?: string;
-  PROJECT_RUNTIME_URL?: string;
-  PROJECT_RUNTIME_SECRET?: string;
-  GITHUB_CLIENT_ID?: string;
-  GITHUB_CLIENT_SECRET?: string;
-  GITHUB_REDIRECT_URI?: string;
-  GITHUB_TOKEN_ENCRYPTION_KEY?: string;
-}
-export type HonoEnv = { Bindings: Env; Variables: { tenant: Tenant; tenantId: string; requestId: string; }; };
+export interface WorkflowBinding { create(options?:{id?:string;params?:unknown}):Promise<{id:string}>; }
+export interface Env { DB:D1Database; CACHE_KV:KVNamespace; Sandbox?:DurableObjectNamespace; TASK_GRAPH_QUEUE?:Queue<TaskExecutionQueueMessage>; AUTONOMOUS_OBJECTIVE_WORKFLOW?:WorkflowBinding; OPENAI_API_KEY?:string; ANTHROPIC_API_KEY?:string; GEMINI_API_KEY?:string; GOOGLE_AI_API_KEY?:string; DEEPSEEK_API_KEY?:string; ALERT_WEBHOOK_URL?:string; ALLOWED_ORIGINS?:string; GOOGLE_CLIENT_ID?:string; GOOGLE_CLIENT_SECRET?:string; GOOGLE_REDIRECT_URI?:string; GOOGLE_TOKEN_ENCRYPTION_KEY?:string; PROJECT_RUNTIME_URL?:string; PROJECT_RUNTIME_SECRET?:string; GITHUB_CLIENT_ID?:string; GITHUB_CLIENT_SECRET?:string; GITHUB_REDIRECT_URI?:string; GITHUB_TOKEN_ENCRYPTION_KEY?:string; }
+export type HonoEnv = { Bindings:Env; Variables:{tenant:Tenant;tenantId:string;requestId:string;executionPrincipal:string;} };

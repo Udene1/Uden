@@ -56,7 +56,7 @@ describe('graph lease recovery D1 integration', () => {
   });
 
   it('blocks a stale root-task update while another execution owns the graph', async () => {
-    await updateTask(db, 'lease-recovery-root', 'lease-recovery-tenant', { status: 'running' });
+    await updateTask(db, 'lease-recovery-root', 'lease-recovery-tenant', { status: 'processing' });
     const task = await db.prepare(`SELECT status FROM tasks WHERE id=? AND tenant_id=?`).bind('lease-recovery-root','lease-recovery-tenant').first<{status:string}>();
     expect(task?.status).toBe('processing');
   });

@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import { listProjectFiles, searchProjectFiles, runProjectCommand, type ProjectFile, type RuntimeResult } from './project-runtime';
 import { applyProjectPatch, type ProjectPatchInput, type ProjectPatchResult } from './project-patch';
+import { fetchGitHubRawFile, fetchGitHubBlob, fetchGitHubTree } from './repository-capabilities';
 
 const MAX_READ_BYTES = 200_000;
 const MAX_DIFF_LINES = 400;
@@ -60,7 +61,10 @@ export type ProjectTool =
   | { name: 'search'; input: { query: string } }
   | { name: 'diff'; input: { path: string; content: string; expectedVersion?: number } }
   | { name: 'patch'; input: { files: ProjectPatchInput[] } }
-  | { name: 'execute'; input: { command: string } };
+  | { name: 'execute'; input: { command: string } }
+  | { name: 'github-raw'; input: { owner: string; repo: string; ref?: string; path: string } }
+  | { name: 'github-blob'; input: { owner: string; repo: string; sha: string } }
+  | { name: 'github-tree'; input: { owner: string; repo: string; ref?: string } };
 
 export async function executeProjectTool(env: Env, tenantId: string, projectId: string, tool: ProjectTool): Promise<unknown> {
   switch (tool.name) {
@@ -70,6 +74,9 @@ export async function executeProjectTool(env: Env, tenantId: string, projectId: 
     case 'diff': return previewProjectDiff(env, tenantId, projectId, tool.input.path, tool.input.content, tool.input.expectedVersion);
     case 'patch': return applyProjectPatch(env, tenantId, projectId, tool.input.files);
     case 'execute': return runProjectCommand(env, tenantId, projectId, tool.input.command, await listProjectFiles(env, tenantId, projectId));
+    case 'github-raw': return fetchGitHubRawFile(env, tool.input, tool.input.path);
+    case 'github-blob': return fetchGitHubBlob(env, tool.input, tool.input.sha);
+    case 'github-tree': return fetchGitHubTree(env, tool.input);
     default: throw new Error('Unsupported project tool');
   }
 }

@@ -1,0 +1,63 @@
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { getPlatformProxy } from 'wrangler';
+import type { D1Database } from '@cloudflare/workers-types';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { acquireGraphExecutionLease, persistGraph, persistGraphNode, getPersistedGraph } from './graph-persistence';
+import { updateTask } from '../db/queries';
+import type { TaskGraph } from '@ai-work-partner/shared';
+
+const testDir = dirname(fileURLToPath(import.meta.url));
+const engineRoot = resolve(testDir, '../..');
+const schemaPath = resolve(testDir, '../db/schema.sql');
+const migrationPath = (name: string) => resolve(engineRoot, 'migrations', name);
+const execSqlFile = async (db: D1Database, path: string) => {
+  const sql = await readFile(path, 'utf8');
+  for (const statement of sql.replace(/^\uFEFF/, '').replace(/^[\t ]*--[^\r\n]*(?:\r?\n|$)/gm, '').split(';').map(s => s.trim()).filter(Boolean)) await db.prepare(statement).run();
+};
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+describe('graph lease recovery D1 integration', () => {
+  let db: D1Database;
+  let dispose: (() => Promise<void>) | undefined;
+  beforeAll(async () => {
+    const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.test.jsonc'), persist: false });
+    db = platform.env.DB as D1Database;
+    dispose = platform.dispose;
+    await execSqlFile(db, schemaPath);
+    for (const migration of ['0003_graph_durable_execution.sql','0004_budget_reservations.sql','0010_graph_node_approvals.sql','0011_runtime_job_linkage.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql']) await execSqlFile(db, migrationPath(migration));
+    await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('lease-recovery-tenant','Lease Recovery','lease@example.test','lease-recovery-hash',100).run();
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('lease-recovery-root','lease-recovery-tenant','lease recovery','processing').run();
+  });
+  afterAll(async () => { await dispose?.(); });
+
+  it('reclaims an expired lease with a new fenced generation', async () => {
+    const graph: TaskGraph = { id: 'lease-reclaim-graph', rootTaskId: 'lease-recovery-root', goal: 'lease reclaim', createdAt: new Date().toISOString(), nodes: [{ id: 'node', title: 'Node', prompt: 'node', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'pending', attemptedModels: [] }] };
+    await persistGraph(db, 'lease-recovery-tenant', graph);
+    const first = await acquireGraphExecutionLease(db, 'lease-recovery-tenant', graph.id, 'worker-a', 1);
+    expect(first).not.toBeNull();
+    await sleep(1200);
+    const second = await acquireGraphExecutionLease(db, 'lease-recovery-tenant', graph.id, 'worker-b', 30);
+    expect(second).toBe((first as number) + 1);
+  });
+
+  it('prevents the stale owner from mutating node state after reclaim', async () => {
+    const graph = await getPersistedGraph(db, 'lease-recovery-tenant', 'lease-reclaim-graph');
+    expect(graph).not.toBeNull();
+    const node = graph!.nodes[0];
+    node.status = 'completed';
+    node.output = 'stale worker must not write this';
+    await expect(persistGraphNode(db, 'lease-recovery-tenant', graph!.id, node, { owner: 'worker-a', fenceVersion: 1, leaseSeconds: 30 })).rejects.toThrow('Graph execution lease lost');
+    const persisted = await getPersistedGraph(db, 'lease-recovery-tenant', graph!.id);
+    expect(persisted?.nodes[0].status).toBe('pending');
+    expect(persisted?.nodes[0].output).toBeUndefined();
+  });
+
+  it('blocks a stale root-task update while another execution owns the graph', async () => {
+    await updateTask(db, 'lease-recovery-root', 'lease-recovery-tenant', { status: 'running' });
+    const task = await db.prepare(`SELECT status FROM tasks WHERE id=? AND tenant_id=?`).bind('lease-recovery-root','lease-recovery-tenant').first<{status:string}>();
+    expect(task?.status).toBe('processing');
+  });
+});

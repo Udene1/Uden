@@ -1,4 +1,4 @@
-export type ExecutionFence = { owner: string; fenceVersion: number };
+export type ExecutionFence = { owner:string; fenceVersion:number; tenantId?:string; graphId?:string };
 export type ExecutionAttemptSideEffect = { id:string; graphId:string; nodeId:string; tenantId:string; attemptNumber:number; model:string; provider?:string; status:'running'|'completed'|'failed'; promptTokens?:number; completionTokens?:number; costCents?:number; qualityScore?:number; escalationReason?:string; error?:string; startedAt?:string; completedAt?:string };
 export type RuntimeSideEffect = { id:string; graphId:string; nodeId:string; tenantId:string; attemptNumber:number; jobId:string; status:'queued'|'running'|'succeeded'|'failed'; exitCode?:number; output?:string };
 export async function assertExecutionFence(db:D1Database,tenantId:string,graphId:string,fence:ExecutionFence):Promise<void>{const row=await db.prepare(`SELECT 1 AS valid FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP`).bind(graphId,tenantId,fence.owner,fence.fenceVersion).first();if(!row)throw new Error('Graph execution lease lost');}

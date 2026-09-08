@@ -12,7 +12,7 @@ export interface TaskNode {
   approvalRequired?: boolean; approvalState?: ApprovalState; approvalReason?: string; approvedBy?: string; approvedAt?: string;
   runtimeJobId?: string; verification?: TaskNodeVerification; repairAttempts?: number; repairError?: string;
 }
-export interface TaskGraph { id: string; rootTaskId: string; goal: string; projectId?: string; nodes: TaskNode[]; createdAt: string; completedAt?: string; }
+export interface TaskGraph { id: string; rootTaskId: string; goal: string; projectId?: string; executionPrincipal?: string; nodes: TaskNode[]; createdAt: string; completedAt?: string; }
 export interface TaskGraphPlan {
   goal: string;
   projectId?: string;

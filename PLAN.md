@@ -1,30 +1,45 @@
 # Uden — Implementation Plan & Project Guardrail
 
-> **Source of truth.** This file records the actual repository state and build order. Future sessions must inspect it and recent commits before changing direction.
+> **Source of truth.** Record actual repository state and build order here. Inspect this file and recent commits before changing direction.
 
 ## Product vision
+Uden is a production-grade, multi-tenant **AI work partner**, not a chatbot wrapper. Users give Uden real work; Uden understands it, decomposes it into a durable task graph, routes each unit to capable models, executes with quality/approval gates, controls spend, verifies results, preserves an auditable work trail, and exposes that work through multiple clients.
 
-Uden is a production-grade, multi-tenant **AI work partner**, not a chatbot wrapper. A user gives Uden real knowledge work; Uden should understand it, decompose complex work, route each unit to the cheapest capable model, execute with quality gates and escalation, control spend, preserve an auditable work trail, and expose the work and economics through the dashboard.
+### Clients
+- **Web:** primary Uden control center for work, graphs, projects, approvals, analytics and administration.
+- **Desktop:** full-capability work environment, including local filesystem/Git/runtime/Ollama capabilities where supported.
+- **Mobile:** deliberately reduced companion client for task creation, monitoring, approvals, notifications and result review.
 
 ## Non-negotiables
 - Real implementation; no fake success paths or production-looking mock data.
-- Do not weaken tests or replace required real integrations merely to get green tests.
-- Cost and quality are first-class constraints.
+- Never weaken tests or replace required integrations to get green CI.
+- Cost, quality, safety and verification are first-class constraints.
 - Every graph node is independently routable and auditable.
 - Tenant isolation applies to every read, write and execution path.
-- Preserve Cloudflare Workers + Hono + D1/KV engine, Next.js dashboard and shared TypeScript contracts.
-- Every substantial milestone ends with verification where available and a focused Git commit.
+- Preserve Cloudflare Workers + Hono + D1/KV engine and shared TypeScript contracts.
+- Client execution views consume real API data and never invent execution state.
+- Uden-managed providers are the normal product path; BYOK uses the same provider abstraction.
+- Do not create special architecture for free-tier providers. Ollama is an ordinary provider endpoint.
+- Every substantial milestone is verified where possible, committed clearly, and reflected here.
 
 ## Architecture
 ### Engine
-Cloudflare Workers, Hono, D1, KV, API-key authentication, deterministic classifier, model registry/pricing, cost-aware routing/fallbacks, quality checks, escalation, provider adapters, usage accounting and task-graph planning/execution.
-### Dashboard
-Next.js App Router with real task/project/analytics/settings surfaces. Graph visualization must not invent execution data.
+Workers/Hono, D1/KV, authentication, classifier, model registry/pricing, cost-aware routing/fallbacks, quality checks/escalation, provider adapters, usage accounting, durable graph execution, leases/fences, approvals and observability.
+
+### Web
+Next.js App Router. Work-first experience with task composer, graph workspace, live execution timeline, approvals, projects/files, verification, provider/usage visibility, analytics and settings.
+
+### Desktop
+Native-capable shell using the same API/domain contracts. Local capabilities are explicit and must cross the same execution-security boundaries; no duplicated engine semantics.
+
+### Mobile
+Companion client using shared contracts. It exposes the high-value operational subset rather than cloning desktop.
+
 ### Shared
-Shared TypeScript contracts for tasks, models, pricing, constants and task graphs.
+Shared TypeScript contracts for tasks, models, pricing, task graphs, execution events and client capabilities.
 
 ## Completed
-### Foundation
+### Engine foundation
 - [x] Shared domain/model contracts and registry.
 - [x] Deterministic classifier.
 - [x] Cost-aware router and fallback chains.
@@ -32,94 +47,103 @@ Shared TypeScript contracts for tasks, models, pricing, constants and task graph
 - [x] Real provider adapters.
 - [x] Usage/cost accounting.
 - [x] Tenant/task/project/usage APIs.
-- [x] Classifier/routing/quality tests.
 
-### Graph planning/execution
+### Graph and durable execution
 - [x] TaskGraph/TaskNode contracts and statuses.
 - [x] Deterministic compound-task decomposition.
-- [x] Per-node routing, dependency validation and explicit upstream context.
+- [x] Per-node routing, dependency validation and upstream context.
 - [x] Real provider execution, quality gates, fallback escalation and budget checks.
-- [x] Downstream blocking and aggregate root-task accounting.
+- [x] Downstream blocking and aggregate root accounting.
 - [x] Authenticated graph execution endpoint.
+- [x] D1 graph/node/attempt persistence and state transitions.
+- [x] Execution ownership lease/expiry protection.
+- [x] Persisted resume and completed-node preservation.
+- [x] Stable attempt identity and idempotent usage accounting.
+- [x] Queue background execution with retry/DLQ and graph resume.
+- [x] External execution fencing for provider/runtime/repository boundaries.
 
-### Durable execution
-- [x] D1 graph/node/attempt persistence wired into execution.
-- [x] Running/completed/failed/blocked transitions persisted during execution.
-- [x] Attempt model/provider/token/cost/quality/timestamps/errors persisted.
-- [x] Execution ownership lease and expiry protection.
-- [x] Persisted resume; completed nodes preserved while incomplete nodes retry.
-- [x] Stable durable attempt identity and idempotent usage accounting.
-- [x] Background execution through Cloudflare Queues with retry/DLQ; queue redelivery resumes the same graph ID.
+### Existing web foundation
+- [x] Next.js dashboard shell/navigation.
+- [x] Graph, task, project, analytics and settings routes.
+- [x] Real analytics/task data wiring; fake analytics data removed.
 
-### Dashboard graph
-- [x] Dependency edges, staged layout, node inspection and persisted attempt history.
-- [x] Execution timeline and live refresh.
-- [x] Resume controls.
-
-### Verification / CI
-- [x] GitHub Actions CI workflow.
-- [x] Real D1/workerd integration coverage for persistence, tenant isolation, idempotent attempts/usage and leases.
-- [x] Reliability coverage for multi-node dependency blocking, budget reservation exhaustion/release and persisted crash recovery.
-- [ ] Final CI run must be observed green after the final production-hardening commits.
-- [ ] First real end-to-end provider execution test using the repository's real integration/recording strategy.
-
-## Reliability/security
-- [x] Input/context limits and graph pagination bounds.
+### Reliability/security
+- [x] Input/context and pagination bounds.
 - [x] Tenant-scoped graph reads/writes/attempt reads.
-- [x] KV-backed graph rate limiting.
+- [x] KV graph rate limiting.
 - [x] Concurrency/idempotency controls.
-- [x] Provider error sanitization, secret redaction and bounded errors.
-- [x] Transient provider retry/backoff.
-- [x] Atomic D1 budget reservation and durable release.
-- [x] Real multi-node dependency/failure-blocking and budget exhaustion tests.
-- [x] Persisted crash/resume verification without provider mocks.
+- [x] Provider error sanitization and secret redaction.
+- [x] Retry/backoff for transient provider failures.
+- [x] Atomic budget reservation/release.
+- [x] Real D1 reliability tests, including dependency blocking, budget exhaustion and crash/resume.
+- [x] External fence checks immediately around meaningful provider/runtime/repository calls.
 
-## Observability
-- [x] Structured request/queue logging with request IDs and latency.
-- [x] Secret/prompt-key redaction in operational logs.
-- [x] Safe API error surfaces that do not expose raw provider failures.
-- [x] Audit trail for graph execution, queue submission, graph resume and tenant settings changes.
-- [x] Cloudflare Workers Logs/Traces enabled in Wrangler.
-- [x] External webhook alerting for Worker 5xx/uncaught errors and queue failures.
-- [ ] Production alert destination secret/configuration must be supplied before deployment.
+### Permissions/observability/analytics
+- [x] Tenant roles and permission checks.
+- [x] Graph execute/resume/read authorization.
+- [x] High-risk pre-spend approval gate and audit event.
+- [x] Structured request/queue logging, safe errors and audit trail.
+- [x] Worker logs/traces and external alert wiring.
+- [x] Cost/quality/failure/escalation analytics from recorded execution data.
 
-## Permissions / human-in-the-loop
-- [x] Tenant roles: owner/admin/member/viewer.
-- [x] Permission checks for graph execute/resume/read and settings/audit access.
-- [x] Tenant member role management with audit trail.
-- [x] Authorization on graph mutation/resume paths.
-- [x] High-risk graph pre-spend approval gate with explicit reasons and audit event.
-- [x] `/plan` exposes approval requirements before execution.
-- [x] Permission-based task approval now authorizes before state mutation.
-- [ ] Durable approval request records and rejection workflow.
-- [ ] Per-user/API-key identity instead of the current tenant API-key subject fallback.
+## Active engine gates
+- [ ] Observe the latest CI run green after the recent hardening changes.
+- [ ] Finish durable execution-principal persistence/propagation from authenticated request through queued/resumed execution.
+- [ ] Finish durable approval request/rejection records and workflow.
+- [ ] Persist plan-time estimated cost separately from actual usage/cost.
+- [ ] Add quantified routing-savings baseline from alternative-model pricing.
+- [ ] Add first real provider E2E using supplied credentials; never fake provider responses.
+- [ ] Deliberately review/remediate dependency security findings; do not blindly run `npm audit fix`.
+- [ ] Complete final deployment/binding/secret verification in the actual environment.
 
-## Analytics
-- [x] Cost/quality/failure metrics by graph, node domain and model.
-- [x] Escalation rate and escalated quality.
-- [x] Recent graph execution economics and latency source data.
-- [x] Actual versus primary-attempt cost data.
-- [x] Dashboard analytics UI wired to the real analytics endpoint; fake analytics data removed.
-- [ ] True estimated-versus-actual cost comparison persisted at plan time.
-- [ ] Quantified routing savings baseline based on recorded alternative-model pricing.
-- [ ] Time-series and operational alert views.
+## Product UI — ACTIVE NOW
+### Web control center
+- [ ] Replace legacy "AI routing engine / Work Partner" marketing presentation with Uden product identity and work-first UX.
+- [ ] Establish reusable Uden design system and responsive shell.
+- [ ] Build real workbench/task composer against authenticated APIs.
+- [ ] Build task planning → execution → verification flow using real graph state.
+- [ ] Build unified graph workspace: dependency edges, node states, attempts, diagnostics, live timeline, pause/resume and failure recovery.
+- [ ] Build approval center against durable approval records.
+- [ ] Build project workspace for real files, changes, runtime jobs and verification.
+- [ ] Keep analytics/economics as an operational surface, not the product's center of gravity.
+- [ ] Remove remaining production-looking placeholder identity/data from client surfaces.
 
-All analytics must originate from recorded execution data.
+### Desktop
+- [ ] Scaffold a native-capable desktop client around shared contracts/API.
+- [ ] Share task/graph/workspace UI concepts without duplicating engine logic.
+- [ ] Add local filesystem/Git/runtime capabilities only behind explicit capability checks and execution fences.
+- [ ] Support Ollama as an ordinary provider endpoint.
+- [ ] Add deep project/IDE workflows that are intentionally desktop-only.
 
-## Production hardening
-- [x] Strict tenant scoping for graph execution paths.
-- [x] Concurrency/idempotency controls.
-- [x] Atomic budget reservation.
-- [x] Durable long-running job execution outside one Worker request.
-- [x] Retry/backoff policy for transient provider failures.
-- [x] External observability/alerts wired.
-- [ ] Final typecheck/build/test/deployment verification.
+### Mobile
+- [ ] Scaffold mobile client around shared contracts.
+- [ ] Define smaller mobile information architecture rather than cloning desktop.
+- [ ] Task creation and result review.
+- [ ] Graph/job monitoring, refresh/resume and execution status.
+- [ ] Approval/rejection, notifications and operational decisions.
+- [ ] Project status; no deep IDE/filesystem workflow by default.
+
+## Verification
+- [ ] Web build/typecheck/test verification.
+- [ ] Desktop build/typecheck verification once shell is selected.
+- [ ] Mobile build/typecheck verification once shell is selected.
+- [ ] Real multi-provider verification with supplied Gemini/NVIDIA/OpenRouter/DeepSeek credentials and local Ollama where available.
+- [ ] Final deployment/readiness gate only after CI and integration verification are green.
+
+## Build order
+1. Stabilize CI and close remaining engine gates that affect durable execution/security.
+2. Build the **web workbench first** against real APIs and remove legacy/placeholder product presentation.
+3. Extract shared client contracts/capabilities.
+4. Build the **desktop full-capability client**.
+5. Build the **mobile reduced-capability companion**.
+6. Exercise the system with real providers and Ollama.
+7. Complete deployment/readiness verification.
 
 ## Anti-drift order
-**Reliability/security → permissions → analytics → production hardening.**
+**Reliability/security → permissions → web workbench → shared client contracts → desktop → mobile → analytics/operational polish → production hardening.**
 
 ## Definition of done
 A milestone is done only when integrated into the real architecture, preserves existing behavior, has appropriate tests, keeps real integrations intact, is verified as far as the environment permits, is committed clearly, and this plan is updated.
 
 ## Immediate next action
-**Observe the final CI run, fix any failures, run the full verification suite, then perform deployment/configuration readiness checks.**
+**Build the first real Uden web workbench surface, while closing the remaining engine gates in parallel; then scaffold desktop and mobile from shared contracts rather than cloning the web UI.**

@@ -16,6 +16,7 @@ export async function markExternalAttemptInFlight(
         external_error=NULL
     WHERE id=?
       AND tenant_id=?
+      AND external_outcome='not_started'
       AND EXISTS (
         SELECT 1
         FROM task_graphs
@@ -28,7 +29,7 @@ export async function markExternalAttemptInFlight(
     RETURNING id
   `).bind(idempotencyKey, attemptId, tenantId, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
 
-  if (!row) throw new Error('Graph execution lease lost before external attempt');
+  if (!row) throw new Error('Graph execution lease lost or external attempt is no longer not_started');
 }
 
 export async function markExternalAttemptOutcome(
@@ -39,6 +40,8 @@ export async function markExternalAttemptOutcome(
   fence: ExecutionFence,
   error?: string,
 ): Promise<void> {
+  const allowedFrom = outcome === 'unknown' || outcome === 'failed' || outcome === 'completed' ? ['in_flight', 'unknown'] : ['in_flight'];
+  const placeholders = allowedFrom.map(() => '?').join(',');
   const row = await db.prepare(`
     UPDATE task_graph_attempts
     SET external_outcome=?,
@@ -46,6 +49,7 @@ export async function markExternalAttemptOutcome(
         external_error=?
     WHERE id=?
       AND tenant_id=?
+      AND external_outcome IN (${placeholders})
       AND EXISTS (
         SELECT 1
         FROM task_graphs
@@ -56,9 +60,9 @@ export async function markExternalAttemptOutcome(
           AND lease_until>=CURRENT_TIMESTAMP
       )
     RETURNING id
-  `).bind(outcome, error?.slice(0, 500) || null, attemptId, tenantId, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
+  `).bind(outcome, error?.slice(0, 500) || null, attemptId, tenantId, ...allowedFrom, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
 
-  if (!row) throw new Error('Graph execution lease lost while recording external outcome');
+  if (!row) throw new Error('Graph execution lease lost or external attempt outcome transition rejected');
 }
 
 export async function getExternalAttemptOutcome(
@@ -78,4 +82,27 @@ export async function getExternalAttemptOutcome(
     idempotencyKey: row.idempotency_key,
     externalError: row.external_error,
   };
+}
+
+export async function listUnresolvedExternalAttempts(
+  db: D1Database,
+  tenantId: string,
+  graphId: string,
+): Promise<Array<{ id: string; nodeId: string; attemptNumber: number; outcome: ExternalAttemptOutcome; idempotencyKey: string | null; externalError: string | null }>> {
+  const result = await db.prepare(`
+    SELECT id,node_id,attempt_number,external_outcome,idempotency_key,external_error
+    FROM task_graph_attempts
+    WHERE tenant_id=? AND graph_id=?
+      AND external_outcome IN ('in_flight','unknown')
+    ORDER BY node_id,attempt_number
+  `).bind(tenantId, graphId).all<{ id: string; node_id: string; attempt_number: number; external_outcome: ExternalAttemptOutcome; idempotency_key: string | null; external_error: string | null }>();
+
+  return (result.results || []).map((row) => ({
+    id: row.id,
+    nodeId: row.node_id,
+    attemptNumber: row.attempt_number,
+    outcome: row.external_outcome,
+    idempotencyKey: row.idempotency_key,
+    externalError: row.external_error,
+  }));
 }

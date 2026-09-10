@@ -16,10 +16,10 @@ export async function checkBudget(env: HonoEnv['Bindings'], tenantId: string): P
   return state.availableCents > 0;
 }
 
-/** Atomically reserves estimated spend using a conditional INSERT ... SELECT. */
+/** Atomically reserves estimated spend and treats an existing live reservation for the same attempt as idempotent. */
 export async function reserveBudget(env: HonoEnv['Bindings'], tenantId: string, amountCents: number, referenceId: string): Promise<boolean> {
   const amount = Math.max(1, Math.ceil(amountCents));
-  const result = await env.DB.prepare(`
+  await env.DB.prepare(`
     INSERT INTO budget_reservations (id, tenant_id, reference_id, amount_cents, status)
     SELECT ?, ?, ?, ?, 'reserved'
     WHERE ? <= (
@@ -27,8 +27,11 @@ export async function reserveBudget(env: HonoEnv['Bindings'], tenantId: string, 
       - COALESCE((SELECT SUM(cost_cents) FROM usage_records WHERE tenant_id=? AND created_at >= datetime('now','start of month')),0)
       - COALESCE((SELECT SUM(amount_cents) FROM budget_reservations WHERE tenant_id=? AND status='reserved' AND created_at >= datetime('now','start of month')),0)
     )
+    ON CONFLICT(tenant_id, reference_id) DO NOTHING
   `).bind(crypto.randomUUID(), tenantId, referenceId, amount, amount, tenantId, tenantId, tenantId).run();
-  return Boolean(result.meta?.changes);
+
+  const row = await env.DB.prepare(`SELECT status FROM budget_reservations WHERE tenant_id=? AND reference_id=?`).bind(tenantId, referenceId).first<{ status: string }>();
+  return row?.status === 'reserved';
 }
 
 export async function releaseBudget(env: HonoEnv['Bindings'], tenantId: string, referenceId: string): Promise<void> {

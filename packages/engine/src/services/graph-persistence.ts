@@ -20,16 +20,17 @@ export async function persistGraphSnapshot(db:D1Database,tenantId:string,graph:T
   const leaseSeconds=lease?.leaseSeconds||120;
   if(lease){
     if(lease.fenceVersion===undefined)throw new Error('Graph execution lease generation required');
+    // Validate the live fence before any node mutation. D1 batches are transactional, but
+    // a zero-row guarded UPDATE is still a successful SQL statement. The deliberate
+    // NOT-NULL violation converts a lost fence into a transaction error so no earlier
+    // statement can partially commit. The guard is intentionally pre-terminal: terminal
+    // snapshots clear owner/lease on the final graph UPDATE, so validating afterwards
+    // would incorrectly reject a valid terminal transition.
+    const atomicGuard=db.prepare(`UPDATE task_graphs SET id=NULL WHERE id=? AND tenant_id=? AND NOT EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP AND (SELECT COUNT(*) FROM task_graph_nodes WHERE graph_id=? AND tenant_id=?)=?)`).bind(graph.id,tenantId,graph.id,tenantId,lease.owner,lease.fenceVersion,graph.id,tenantId,graph.nodes.length);
     const nodeStatements=graph.nodes.map(node=>nodeUpdateStatement(db,tenantId,graph.id,node,lease));
     const finalGraph=db.prepare(`UPDATE task_graphs SET status=?,active_node_id=?,last_error=?,started_at=COALESCE(started_at,CURRENT_TIMESTAMP),completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,execution_owner=CASE WHEN ? THEN NULL ELSE execution_owner END,lease_until=CASE WHEN ? THEN NULL ELSE datetime('now','+'||?||' seconds') END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP AND (SELECT COUNT(*) FROM task_graph_nodes WHERE graph_id=? AND tenant_id=?)=?`).bind(status,activeNodeId||null,lastError||null,terminal?1:0,terminal?1:0,terminal?1:0,leaseSeconds,graph.id,tenantId,lease.owner,lease.fenceVersion,graph.id,tenantId,graph.nodes.length);
-    // A guarded UPDATE that matches zero rows is not a SQL error, so D1 would otherwise
-    // commit earlier node updates before our application-level verification could reject
-    // the snapshot. This statement deliberately violates the graph PK NOT NULL constraint
-    // only when the complete fence + node-count guard is invalid. D1 then rolls back the
-    // entire batch, making a fenced snapshot all-or-nothing rather than merely detectable.
-    const atomicGuard=db.prepare(`UPDATE task_graphs SET id=NULL WHERE id=? AND tenant_id=? AND NOT EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP AND (SELECT COUNT(*) FROM task_graph_nodes WHERE graph_id=? AND tenant_id=?)=?)`).bind(graph.id,tenantId,graph.id,tenantId,terminal?null:lease.owner,lease.fenceVersion,graph.id,tenantId,graph.nodes.length);
     const verification=db.prepare(`SELECT id FROM task_graphs WHERE id=? AND tenant_id=? AND execution_version=? AND ((? IS NULL AND execution_owner IS NULL) OR execution_owner=?) AND ((SELECT COUNT(*) FROM task_graph_nodes WHERE graph_id=? AND tenant_id=?)=?)`).bind(graph.id,tenantId,lease.fenceVersion,terminal?null:lease.owner,terminal?null:lease.owner,graph.id,tenantId,graph.nodes.length);
-    const results=await db.batch([...nodeStatements,finalGraph,atomicGuard,verification]);
+    const results=await db.batch([atomicGuard,...nodeStatements,finalGraph,verification]);
     const verificationResult=results[results.length-1];
     const verified=Boolean(verificationResult?.results?.length);
     if(!verified)throw new Error('Graph execution lease lost');

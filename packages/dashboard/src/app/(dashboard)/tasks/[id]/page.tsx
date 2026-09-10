@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { ArrowLeft, CheckCircle, BrainCircuit, DollarSign, Radio, ShieldCheck, Workflow } from 'lucide-react';
+import { ArrowLeft, CheckCircle, BrainCircuit, DollarSign, Radio, ShieldCheck, Workflow, Circle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -12,6 +12,19 @@ import { api, Task } from '@/lib/api';
 import { Skeleton } from '@/components/ui/LoadingSkeleton';
 
 const terminalStatuses = new Set(['completed', 'failed', 'rejected']);
+const lifecycle = [
+  { key: 'queued', label: 'Queued' },
+  { key: 'running', label: 'Executing' },
+  { key: 'completed', label: 'Verified' },
+];
+
+function lifecycleIndex(status: string) {
+  if (status === 'completed') return 2;
+  if (status === 'failed' || status === 'rejected') return -1;
+  if (status === 'awaiting-approval') return 0;
+  if (status === 'running') return 1;
+  return 0;
+}
 
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -61,16 +74,27 @@ export default function TaskDetail() {
   const durationMs = task.completedAt ? new Date(task.completedAt).getTime() - new Date(task.createdAt).getTime() : null;
   const duration = durationMs !== null && durationMs >= 0 ? `${(durationMs / 1000).toFixed(1)}s` : 'In progress';
   const isLive = !terminalStatuses.has(task.status) && task.status !== 'awaiting-approval';
+  const activeStep = lifecycleIndex(task.status);
+  const isFailure = task.status === 'failed' || task.status === 'rejected';
 
   return (
     <div className="space-y-6 max-w-6xl pb-10">
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-2">
-        <Link href="/tasks" className="p-2 rounded-full hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors"><ArrowLeft size={20} /></Link>
+        <Link href="/tasks" aria-label="Back to tasks" className="p-2 rounded-full hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors"><ArrowLeft size={20} /></Link>
         <div className="min-w-0"><div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-bold text-[var(--text-primary)]">Task {task.id}</h1><StatusBadge status={task.status} />{isLive && <span className="text-xs text-[var(--accent-primary)] flex items-center gap-1"><Radio size={12} className="animate-pulse" /> Live</span>}</div><p className="text-sm text-[var(--text-secondary)]">Created {formatDate(task.createdAt)}{task.completedAt ? ` · completed ${formatDate(task.completedAt)}` : ''}</p></div>
-        <div className="sm:ml-auto flex gap-2"><button onClick={() => void loadTask()} disabled={refreshing} className="btn btn-secondary">{refreshing ? 'Refreshing…' : 'Refresh'}</button>{task.status === 'awaiting-approval' && <button className="btn btn-primary" onClick={approve} disabled={approving}><CheckCircle size={16} />{approving ? 'Approving…' : 'Approve execution'}</button>}</div>
+        <div className="sm:ml-auto flex gap-2"><button type="button" onClick={() => void loadTask()} disabled={refreshing} className="btn btn-secondary">{refreshing ? 'Refreshing…' : 'Refresh'}</button>{task.status === 'awaiting-approval' && <button type="button" className="btn btn-primary" onClick={approve} disabled={approving}><CheckCircle size={16} />{approving ? 'Approving…' : 'Approve execution'}</button>}</div>
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-400">{error}</div>}
+
+      <section className="glass-card border border-[var(--border-color)] p-5" aria-label="Task lifecycle">
+        <div className="flex items-center justify-between gap-4 mb-5"><div><h2 className="font-semibold text-[var(--text-primary)]">Execution lifecycle</h2><p className="text-xs text-[var(--text-secondary)] mt-1">Track where this work is now. Uden records the outcome rather than implying completion before it is recorded.</p></div>{isFailure && <span className="text-xs text-red-400">Execution stopped</span>}</div>
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          {lifecycle.map((step, index) => { const done = !isFailure && activeStep >= index; const current = !isFailure && activeStep === index; return <div key={step.key} className="relative"><div className="flex items-center gap-2"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${done ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]' : 'border-[var(--border-color)] text-[var(--text-muted)]'}`}>{done ? <CheckCircle size={14} /> : <Circle size={14} />}</span><span className={`text-xs sm:text-sm ${current ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>{step.label}</span></div>{index < lifecycle.length - 1 && <div className={`absolute left-7 right-[-1rem] top-3.5 h-px ${!isFailure && activeStep > index ? 'bg-[var(--accent-primary)]' : 'bg-[var(--border-color)]'}`} />}</div>; })}
+        </div>
+        {task.status === 'awaiting-approval' && <div className="mt-5 rounded-xl border border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/5 p-4"><div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]"><ShieldCheck size={16} className="text-[var(--accent-primary)]" /> Approval required before execution</div><p className="text-xs text-[var(--text-secondary)] mt-1">This task is paused at the execution boundary. Approve it to let the recorded execution continue.</p></div>}
+        {isFailure && <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/5 p-4"><div className="text-sm font-medium text-[var(--text-primary)]">Execution did not reach a verified result.</div><p className="text-xs text-[var(--text-secondary)] mt-1">Review the recorded error or execution graph before deciding whether to retry.</p></div>}
+      </section>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Metric icon={<BrainCircuit size={14} />} label="Model" value={task.modelUsed || 'Not selected'} />

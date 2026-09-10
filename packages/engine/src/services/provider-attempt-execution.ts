@@ -1,6 +1,6 @@
 import type { ProviderExecutionOptions, ProviderExecutionResult, AIProvider } from './providers';
-import { markExternalAttemptInFlight, markExternalAttemptOutcome } from './external-attempt-persistence';
-import { createExternalAttemptIdentity } from './external-attempts';
+import { getExternalAttemptOutcome, markExternalAttemptInFlight, markExternalAttemptOutcome } from './external-attempt-persistence';
+import { createExternalAttemptIdentity, requiresReconciliation } from './external-attempts';
 import type { ExecutionFence } from './execution-side-effects';
 import { isAmbiguousProviderError, sanitizeProviderError } from './provider-errors';
 
@@ -25,6 +25,17 @@ export async function executeDurableProviderAttempt(
   options?: Omit<ProviderExecutionOptions, 'idempotencyKey'>,
 ): Promise<DurableProviderAttempt> {
   const identity = createExternalAttemptIdentity({ graphId, nodeId, tenantId, attemptNumber });
+  const existing = await getExternalAttemptOutcome(db, tenantId, durableAttemptId);
+
+  if (existing && requiresReconciliation(existing.outcome)) {
+    if (!provider.supportsIdempotencyKey) {
+      throw new Error(`External attempt '${durableAttemptId}' requires reconciliation before retry; provider '${modelId}' does not declare idempotent replay support`);
+    }
+    if (existing.idempotencyKey && existing.idempotencyKey !== identity.idempotencyKey) {
+      throw new Error(`External attempt '${durableAttemptId}' has an unexpected idempotency identity`);
+    }
+  }
+
   await markExternalAttemptInFlight(db, tenantId, durableAttemptId, identity.idempotencyKey, fence);
 
   try {
@@ -35,7 +46,7 @@ export async function executeDurableProviderAttempt(
     await markExternalAttemptOutcome(db, tenantId, durableAttemptId, 'completed', fence);
     return { attemptId: durableAttemptId, idempotencyKey: identity.idempotencyKey, result };
   } catch (error) {
-    const safe = sanitizeProviderError('provider', error);
+    const safe = sanitizeProviderError(modelId, error);
     await markExternalAttemptOutcome(
       db,
       tenantId,

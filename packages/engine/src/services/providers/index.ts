@@ -12,7 +12,7 @@ export interface ProviderExecutionOptions {
   idempotencyKey?: string;
 }
 export interface ProviderExecutionResult { result: string; promptTokens: number; completionTokens: number; finishReason?: string; latencyMs?: number; }
-export interface AIProvider { execute(prompt: string, modelId: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult>; }
+export interface AIProvider { execute(prompt: string, modelId: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult>; supportsIdempotencyKey?: boolean; }
 
 export function getProvider(env: Env, modelId: string): AIProvider {
   let provider: AIProvider;
@@ -24,6 +24,7 @@ export function getProvider(env: Env, modelId: string): AIProvider {
 
   const name = modelId.startsWith('gpt') || modelId.startsWith('o3') ? 'openai' : modelId.startsWith('claude') ? 'anthropic' : modelId.startsWith('gemini') ? 'google' : 'deepseek';
   return {
+    supportsIdempotencyKey: name === 'openai',
     execute: async (prompt, id, options) => {
       try { return await provider.execute(prompt, id, options); }
       catch (error) { throw sanitizeProviderError(name, error); }

@@ -8,7 +8,7 @@ export interface TaskNode {
   id: string; title: string; prompt: string; domain: TaskDomain; complexity: number; expectedFormat: OutputFormat;
   recommendedTier: ModelTier; dependencies: string[]; status: TaskNodeStatus; contextFrom: string[]; attemptedModels: string[];
   kind?: TaskNodeKind; tool?: 'tree' | 'read' | 'search' | 'diff' | 'patch' | 'execute'; toolInput?: Record<string, unknown>;
-  selectedModel?: string; activeAttemptNumber?: number; output?: string; qualityScore?: number; costCents?: number; tokensIn?: number; tokensOut?: number; error?: string;
+  selectedModel?: string; output?: string; qualityScore?: number; costCents?: number; tokensIn?: number; tokensOut?: number; error?: string;
   approvalRequired?: boolean; approvalState?: ApprovalState; approvalReason?: string; approvedBy?: string; approvedAt?: string;
   runtimeJobId?: string; verification?: TaskNodeVerification; repairAttempts?: number; repairError?: string;
 }

@@ -16,7 +16,10 @@ export async function markExternalAttemptInFlight(
         external_error=NULL
     WHERE id=?
       AND tenant_id=?
-      AND external_outcome='not_started'
+      AND (
+        external_outcome='not_started'
+        OR (external_outcome IN ('in_flight','unknown') AND idempotency_key=?)
+      )
       AND EXISTS (
         SELECT 1
         FROM task_graphs
@@ -27,9 +30,9 @@ export async function markExternalAttemptInFlight(
           AND lease_until>=CURRENT_TIMESTAMP
       )
     RETURNING id
-  `).bind(idempotencyKey, attemptId, tenantId, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
+  `).bind(idempotencyKey, attemptId, tenantId, idempotencyKey, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
 
-  if (!row) throw new Error('Graph execution lease lost or external attempt is no longer not_started');
+  if (!row) throw new Error('Graph execution lease lost or external attempt identity/state rejected');
 }
 
 export async function markExternalAttemptOutcome(

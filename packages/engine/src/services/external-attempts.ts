@@ -9,15 +9,18 @@ export type ExternalAttemptIdentity = {
   idempotencyKey: string;
 };
 
+/**
+ * Derive attempt identity from durable graph coordinates. A reclaimed worker
+ * must derive the same identity so an ambiguous provider attempt can be
+ * reconciled or replayed with the same idempotency key instead of creating a
+ * second billable request.
+ */
 export function createExternalAttemptIdentity(input: Omit<ExternalAttemptIdentity, 'id' | 'idempotencyKey'>): ExternalAttemptIdentity {
-  const id = crypto.randomUUID();
+  const stableId = `uden-attempt:${input.tenantId}:${input.graphId}:${input.nodeId}:${input.attemptNumber}`;
   return {
     ...input,
-    id,
-    // Stable for the lifetime of this attempt. A reclaimed worker must reuse this
-    // identity when reconciling an ambiguous provider outcome instead of creating
-    // another billable request.
-    idempotencyKey: `uden:${input.tenantId}:${input.graphId}:${input.nodeId}:${input.attemptNumber}:${id}`,
+    id: stableId,
+    idempotencyKey: `uden:${input.tenantId}:${input.graphId}:${input.nodeId}:${input.attemptNumber}`,
   };
 }
 

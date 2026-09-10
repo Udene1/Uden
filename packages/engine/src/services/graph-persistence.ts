@@ -22,9 +22,9 @@ export async function persistGraphSnapshot(db:D1Database,tenantId:string,graph:T
     if(lease.fenceVersion===undefined)throw new Error('Graph execution lease generation required');
     const leaseGuard=db.prepare(`UPDATE task_graphs SET lease_until=datetime('now','+'||?||' seconds'),updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP RETURNING execution_version`).bind(leaseSeconds,graph.id,tenantId,lease.owner,lease.fenceVersion);
     const nodeStatements=graph.nodes.map(node=>nodeUpdateStatement(db,tenantId,graph.id,node,lease));
-    const finalGraph=db.prepare(`UPDATE task_graphs SET status=?,active_node_id=?,last_error=?,started_at=COALESCE(started_at,CURRENT_TIMESTAMP),completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,execution_owner=CASE WHEN ? THEN NULL ELSE execution_owner END,lease_until=CASE WHEN ? THEN NULL ELSE datetime('now','+'||?||' seconds') END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=?`).bind(status,activeNodeId||null,lastError||null,terminal?1:0,terminal?1:0,terminal?1:0,leaseSeconds,graph.id,tenantId,lease.owner,lease.fenceVersion);
+    const finalGraph=db.prepare(`UPDATE task_graphs SET status=?,active_node_id=?,last_error=?,started_at=COALESCE(started_at,CURRENT_TIMESTAMP),completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END,execution_owner=CASE WHEN ? THEN NULL ELSE execution_owner END,lease_until=CASE WHEN ? THEN NULL ELSE datetime('now','+'||?||' seconds') END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? RETURNING id`).bind(status,activeNodeId||null,lastError||null,terminal?1:0,terminal?1:0,terminal?1:0,leaseSeconds,graph.id,tenantId,lease.owner,lease.fenceVersion);
     const results=await db.batch([leaseGuard,...nodeStatements,finalGraph]);
-    if(!results[0]?.results?.[0])throw new Error('Graph execution lease lost');
+    if(!results[0]?.meta?.changes || !results[results.length-1]?.meta?.changes)throw new Error('Graph execution lease lost');
     return;
   }
   for(const node of graph.nodes)await persistGraphNode(db,tenantId,graph.id,node);

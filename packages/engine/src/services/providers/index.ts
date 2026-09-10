@@ -5,7 +5,12 @@ import { GoogleProvider } from './google';
 import { DeepSeekProvider } from './deepseek';
 import { sanitizeProviderError } from '../provider-errors';
 
-export interface ProviderExecutionOptions { systemPrompt?: string; temperature?: number; maxTokens?: number; }
+export interface ProviderExecutionOptions {
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  idempotencyKey?: string;
+}
 export interface ProviderExecutionResult { result: string; promptTokens: number; completionTokens: number; finishReason?: string; latencyMs?: number; }
 export interface AIProvider { execute(prompt: string, modelId: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult>; }
 

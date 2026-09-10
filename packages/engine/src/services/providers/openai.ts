@@ -28,12 +28,17 @@ export class OpenAIProvider {
       body.max_tokens = options.maxTokens;
     }
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${this.env.OPENAI_API_KEY}`
+    };
+    if (options?.idempotencyKey) {
+      headers['Idempotency-Key'] = options.idempotencyKey;
+    }
+
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.env.OPENAI_API_KEY}`
-      },
+      headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(25000)
     });

@@ -7,7 +7,7 @@ import { isAmbiguousProviderError, sanitizeProviderError } from './provider-erro
 export type DurableProviderAttempt = {
   attemptId: string;
   idempotencyKey: string;
-  result?: ProviderExecutionResult;
+  result: ProviderExecutionResult;
 };
 
 /** Executes one externally billable attempt. It intentionally never retries. */

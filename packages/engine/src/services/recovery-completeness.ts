@@ -10,7 +10,7 @@ export async function auditRecoveryCompleteness(db:D1Database,tenantId:string):P
   const resources:RecoveryResource[]=[];
   const provider=await db.prepare(`SELECT id,graph_id,external_outcome FROM task_graph_attempts WHERE tenant_id=? AND external_outcome IN ('in_flight','possibly_succeeded','unknown')`).bind(tenantId).all<{id:string;graph_id:string;external_outcome:string}>();
   for(const row of provider.results||[])resources.push(assertExactlyOne({kind:'provider_attempt',id:row.id,graphId:row.graph_id,state:row.external_outcome,paths:['reconcile_provider']}));
-  const runtime=await db.prepare(`SELECT attempt_id,graph_id,status FROM runtime_executions WHERE tenant_id=? AND status IN ('in_flight','unknown')`).bind(tenantId).all<{attempt_id:string;graph_id:string;status:string}>();
+  const runtime=await db.prepare(`SELECT attempt_id,graph_id,status FROM runtime_executions WHERE tenant_id=? AND status IN ('in_flight','possibly_succeeded','unknown')`).bind(tenantId).all<{attempt_id:string;graph_id:string;status:string}>();
   for(const row of runtime.results||[])resources.push(assertExactlyOne({kind:'runtime_execution',id:row.attempt_id,graphId:row.graph_id,state:row.status,paths:['reconcile_runtime']}));
   const repository=await db.prepare(`SELECT id,graph_id,status FROM repository_operations WHERE tenant_id=? AND status IN ('in_flight','unknown')`).bind(tenantId).all<{id:string;graph_id:string;status:string}>();
   for(const row of repository.results||[])resources.push(assertExactlyOne({kind:'repository_operation',id:row.id,graphId:row.graph_id,state:row.status,paths:['reconcile_repository']}));

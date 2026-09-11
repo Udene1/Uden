@@ -36,7 +36,7 @@ async function versionPatch(env: HonoEnv['Bindings'], tenantId: string, projectI
   const versioned: ProjectPatchInput[] = [];
   for (const file of files) {
     try { const current = await readProjectFile(env, tenantId, projectId, file.path); versioned.push({ ...file, expectedVersion: current.version }); }
-    catch (error) { if (!(error instanceof Error) || error.message !== 'Project file not found') throw error; versioned.push(file); }
+    catch (error) { if (!(error instanceof Error) || error.message !== 'Project file not found') throw error; versioned.push({ ...file, expectedVersion: 0 }); }
   }
   return versioned;
 }

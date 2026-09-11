@@ -32,7 +32,7 @@ describe.sequential('durable graph attempt recovery D1 integration', () => {
     await db.prepare(`INSERT INTO task_graph_attempts (id,graph_id,node_id,tenant_id,attempt_number,model,provider,status,external_outcome,idempotency_key,started_at) VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind('attempt-recovery-graph:node:1','attempt-recovery-graph','node','attempt-recovery-tenant',1,'gpt-4o-mini','openai','running','in_flight','uden:attempt-recovery-tenant:attempt-recovery-graph:node:1').run();
     const recovered = await getPersistedGraph(db, 'attempt-recovery-tenant', 'attempt-recovery-graph');
     const node = recovered?.nodes[0] as (TaskGraph['nodes'][number] & { resumeAttemptNumber?: number; resumeAttemptModel?: string; resumeAttemptId?: string; resumeAttemptExternalOutcome?: string }) | undefined;
-    expect(node?.status).toBe('ready');
+    expect(node?.status).toBe('awaiting-reconciliation');
     expect(node?.attemptedModels).toEqual([]);
     expect(node?.resumeAttemptNumber).toBe(1);
     expect(node?.resumeAttemptModel).toBe('gpt-4o-mini');
@@ -48,7 +48,7 @@ describe.sequential('durable graph attempt recovery D1 integration', () => {
     }
     const recovered = await getPersistedGraph(db, 'attempt-recovery-tenant', 'attempt-history-graph');
     const node = recovered?.nodes[0] as TaskGraph['nodes'][number] & { resumeAttemptNumber?: number; resumeAttemptModel?: string };
-    expect(node.status).toBe('ready');
+    expect(node.status).toBe('awaiting-reconciliation');
     expect(node.attemptedModels).toEqual(['gpt-4o-mini']);
     expect(node.resumeAttemptNumber).toBe(2);
     expect(node.resumeAttemptModel).toBe('gpt-4o');

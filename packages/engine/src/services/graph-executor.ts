@@ -1,11 +1,11 @@
 import type { HonoEnv } from '../types';
-import { recordUsage, reserveBudget, releaseBudget } from './cost';
+import { recordUsage, reserveBudget as reserveBudgetUnfenced, releaseBudget as releaseBudgetUnfenced } from './cost';
 import { checkQuality } from './quality';
 import { getProvider } from './providers';
 import { executeDurableProviderAttempt } from './provider-attempt-execution';
 import { routeGraphNode } from './graph-router';
 import { createEscalationLog, createTask, getMonthlySpend, getTenantById, updateTask } from '../db/queries';
-import { persistGraph, persistGraphSnapshot, recordGraphAttempt, acquireGraphExecutionLease, getPersistedGraph } from './graph-persistence';
+import { persistGraph, persistGraphSnapshot, acquireGraphExecutionLease, getPersistedGraph } from './graph-persistence';
 import { classifyTask } from './classifier';
 import { sanitizeProviderError, isAmbiguousProviderError } from './provider-errors';
 import { executeProjectTool, type ProjectTool, type RuntimeResult } from './project-context';
@@ -13,7 +13,7 @@ import { getProjectRuntimeJob } from './project-runtime';
 import { verifyRuntimeResult } from './graph-verification';
 import { canRepair } from './graph-repair';
 import { proposeGraphRepair } from './graph-repair-proposals';
-import { assertExecutionFence, type ExecutionFence } from './execution-side-effects';
+import { assertExecutionFence, recordFencedAttempt, type ExecutionFence, type ExecutionAttemptSideEffect } from './execution-side-effects';
 import type { Task, TaskGraph, TaskGraphPlan, TaskNode, TaskNodeStatus } from '@ai-work-partner/shared';
 import { MAX_ESCALATION_ATTEMPTS } from '@ai-work-partner/shared';
 export interface GraphExecutionResult { graph: TaskGraph; status: 'completed' | 'failed' | 'blocked' | 'awaiting-approval' | 'awaiting-runtime'; output: string; totalCostCents: number; tokensIn: number; tokensOut: number; executionOrder: string[]; }
@@ -30,6 +30,9 @@ function nodeSuccessCriteria(node:TaskNode):string|undefined{const value=(node.t
 async function executeProjectToolNode(env: HonoEnv['Bindings'], graph: TaskGraph, node: TaskNode, tenantId: string, persist: (status?: string, error?: string) => Promise<void>, fence: ExecutionFence): Promise<void> { const projectId = graphProjectId(env, graph); if (!projectId) throw new Error('Project tool node requires a project-backed graph'); try { setNodeStatus(node, 'running'); await persist('running'); const result = await executeProjectTool(env, tenantId, projectId, projectTool(node), fence); if (node.tool === 'execute' && isRuntimeResult(result)) { node.runtimeJobId = result.jobId; node.output = result.output || JSON.stringify(result); if (result.status === 'queued' || result.status === 'running') { node.error = undefined; setNodeStatus(node, 'awaiting-runtime'); await persist('awaiting-runtime'); return; } if (result.status === 'failed') { node.verification = verifyRuntimeResult(result,nodeSuccessCriteria(node)); node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; } } if (node.tool === 'execute' && isRuntimeResult(result)) { node.verification = verifyRuntimeResult(result,nodeSuccessCriteria(node)); if (!node.verification.passed) { node.error = node.verification.reason; setNodeStatus(node, 'failed'); await persist('failed', node.error); return; } } node.output = typeof result === 'string' ? result : JSON.stringify(result); node.qualityScore = 1; node.error = undefined; setNodeStatus(node, 'completed'); await persist('running'); } catch (error) { const safe = sanitizeProviderError('project-runtime', error); node.error = safe.message; setNodeStatus(node, 'failed'); await persist('failed', safe.message); } }
 function graphProjectId(_env: HonoEnv['Bindings'], graph: TaskGraph): string | undefined { return (graph as TaskGraph & { projectId?: string }).projectId; }
 async function executeNode(env: HonoEnv['Bindings'], graph: TaskGraph, node: TaskNode, tenantId: string, qualityPreference: 'cost-optimized' | 'balanced' | 'quality-first', budgetLeftCents: () => Promise<number>, persist: (status?: string, error?: string) => Promise<void>, fence: ExecutionFence): Promise<void> {
+  const recordGraphAttempt = (_db: typeof env.DB, attempt: ExecutionAttemptSideEffect) => recordFencedAttempt(_db, attempt, fence);
+  const reserveBudget = (_env: HonoEnv['Bindings'], _tenantId: string, amountCents: number, referenceId: string) => reserveBudgetUnfenced(_env, _tenantId, amountCents, referenceId, fence);
+  const releaseBudget = (_env: HonoEnv['Bindings'], _tenantId: string, referenceId: string) => releaseBudgetUnfenced(_env, _tenantId, referenceId, fence);
   if (node.kind === 'project-tool') { await executeProjectToolNode(env, graph, node, tenantId, persist, fence); return; }
   const decision = routeGraphNode(node, { qualityPreference, budgetLeftCents: await budgetLeftCents() }); node.selectedModel = decision.primaryModel; setNodeStatus(node, 'running'); await persist('running');
   const prompt = buildGraphNodePrompt(node, graph); const primaryAttemptNumber = node.attemptedModels.length + 1; const primaryAttemptId = attemptId(graph.id, node.id, primaryAttemptNumber);

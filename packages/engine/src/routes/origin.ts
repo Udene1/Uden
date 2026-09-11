@@ -9,6 +9,11 @@ export const originCallbackRoutes = new Hono<HonoEnv>();
 const code=(message:string)=>message==='Forbidden'?403:502;
 const params=(c:any)=>({owner:c.req.param('owner'),repo:c.req.param('repo')});
 
+// Direct provider mutations are intentionally not exposed as a second side-effect path.
+// Graph execution must use repository-operation-executor so authorization, idempotency,
+// fencing, and ambiguous-outcome reconciliation are durable rather than request-local.
+originRoutes.use('/repos/:owner/:repo/*',async(c,next)=>{if(['POST','PUT','PATCH','DELETE'].includes(c.req.method))return c.json({error:'Direct Origin mutations must execute through a durable graph repository operation'},409);await next();});
+
 originRoutes.get('/connect',async c=>{try{await requirePermission(c.env.DB,c.get('tenantId'),'settings:write');return c.json({authorizationUrl:await createOriginInstallUrl(c.env,c.get('tenantId'))});}catch(error){const message=sanitizeError(error);return c.json({error:message},message==='Forbidden'?403:503);}});
 originCallbackRoutes.get('/',async c=>{try{const receipt=c.req.query('installation_receipt');if(!receipt)return c.json({error:'Missing Origin installation receipt'},400);const result=await completeOriginInstall(c.env,receipt);await writeAudit(c.env.DB,result.tenantId,'origin.connect','origin_connection',result.installationId,'origin-installation',undefined);return c.json({connected:true,installationId:result.installationId,namespaceId:result.namespaceId});}catch(error){return c.json({error:sanitizeError(error)},400);}});
 originRoutes.delete('/connection',async c=>{try{const tenantId=c.get('tenantId');await requirePermission(c.env.DB,tenantId,'settings:write');await disconnectOrigin(c.env,tenantId);await writeAudit(c.env.DB,tenantId,'origin.disconnect','origin_connection',undefined,c.get('executionPrincipal'),c.get('requestId'));return c.json({disconnected:true});}catch(error){const message=sanitizeError(error);return c.json({error:message},code(message));}});

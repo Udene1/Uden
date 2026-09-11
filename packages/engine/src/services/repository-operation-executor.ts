@@ -2,6 +2,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { Env } from '../types';
 import { getCodeSource, type CodeRepositoryRef, type CodeFileChange, type CodeMutationPrecondition } from './code-source';
 import { authorizeRepositoryOperation, markRepositoryOperationInFlight, completeRepositoryOperation, failRepositoryOperation, markRepositoryOperationUnknown, type RepositoryOperationInput, type RepositoryOperationRecord } from './repository-operations';
+import { assertExecutionFence } from './execution-side-effects';
 
 export interface RepositoryOperationContext { db:D1Database; env:Env; tenantId:string; graphId:string; nodeId:string; executionOwner:string; executionVersion:number; repository:CodeRepositoryRef; idempotencyKey:string; }
 export interface RepositoryMutationResult { resultSha?:string; pullRequestNumber?:number; }
@@ -14,7 +15,11 @@ async function run(ctx:RepositoryOperationContext,operation:RepositoryOperationI
   if(authorized.status==='unknown')throw new Error(`Repository operation ${authorized.id} has unknown external outcome and must be reconciled before retry`);
   if(authorized.status==='in_flight')throw new Error(`Repository operation ${authorized.id} is already in flight`);
   const durable={...op,id:authorized.id,idempotencyKey:authorized.idempotencyKey};
-  const inFlight=await markRepositoryOperationInFlight(ctx.db,durable);
+  await markRepositoryOperationInFlight(ctx.db,durable);
+  // This check is intentionally immediately before the external call. It cannot
+  // eliminate the distributed race by itself, so ambiguous provider responses
+  // still become unknown and require reconciliation.
+  await assertExecutionFence(ctx.db,ctx.tenantId,ctx.graphId,{owner:ctx.executionOwner,fenceVersion:ctx.executionVersion,tenantId:ctx.tenantId,graphId:ctx.graphId});
   const source=getCodeSource(ctx.repository.provider);
   try{return await completeRepositoryOperation(ctx.db,durable,await mutation(source,ctx));}
   catch(error){const message=error instanceof Error?error.message:String(error);if(/timeout|timed out|network|fetch failed|connection|ECONN|ETIMEDOUT|502|503|504/i.test(message))return markRepositoryOperationUnknown(ctx.db,durable,message);return failRepositoryOperation(ctx.db,durable,message);}

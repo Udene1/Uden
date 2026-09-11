@@ -1,7 +1,7 @@
 import type { ModelTier, OutputFormat, QualityPreference, TaskDomain } from './types';
 import type { ExecutionRuntimeCapability, ExecutionRuntimeKind } from './execution-runtime';
 
-export type TaskNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting-approval' | 'awaiting-runtime';
+export type TaskNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting-approval' | 'awaiting-runtime' | 'awaiting-reconciliation';
 export type ApprovalState = 'not-required' | 'pending' | 'approved' | 'rejected';
 export type TaskNodeKind = 'model' | 'project-tool';
 export interface TaskNodeVerification { passed: boolean; reason: string; checkedAt: string; }

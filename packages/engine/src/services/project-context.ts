@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { listProjectFiles, searchProjectFiles, runProjectCommand, type ProjectFile, type RuntimeResult } from './project-runtime';
+import { listProjectFiles, searchProjectFiles, type ProjectFile, type RuntimeResult } from './project-runtime';
 import { applyProjectPatch, type ProjectPatchInput, type ProjectPatchResult } from './project-patch';
 import { fetchGitHubRawFile, fetchGitHubBlob, fetchGitHubTree } from './repository-capabilities';
 import type { ExecutionFence } from './execution-side-effects';
@@ -21,18 +21,16 @@ export type ProjectTool =
   | { name: 'tree'; input: Record<string, never> } | { name: 'read'; input: { path: string } } | { name: 'search'; input: { query: string } } | { name: 'diff'; input: { path: string; content: string; expectedVersion?: number } } | { name: 'patch'; input: { files: ProjectPatchInput[] } } | { name: 'execute'; input: { command: string; runtimeCapability?: ExecutionRuntimeCapability; preferredRuntimeKind?: ExecutionRuntimeKind; args?: readonly string[]; workingDirectory?: string; approved?: boolean } } | { name: 'github-raw'; input: { owner: string; repo: string; ref?: string; path: string } } | { name: 'github-blob'; input: { owner: string; repo: string; sha: string } } | { name: 'github-tree'; input: { owner: string; repo: string; ref?: string } };
 function requireFenceIdentity(fence: ExecutionFence): ExecutionFence & { tenantId:string; graphId:string } { if (!fence.tenantId || !fence.graphId) throw new Error('Execution fence identity is required'); return fence as ExecutionFence & { tenantId:string; graphId:string }; }
 export async function executeProjectTool(env: Env, tenantId: string, projectId: string, tool: ProjectTool, fence?: ExecutionFence): Promise<unknown> {
-  if ((tool.name === 'execute' || tool.name.startsWith('github-')) && !fence) throw new Error('Execution fence is required for externally meaningful project capabilities');
+  if ((tool.name === 'patch' || tool.name === 'execute' || tool.name.startsWith('github-')) && !fence) throw new Error('Execution fence is required for externally meaningful project capabilities');
   switch (tool.name) {
-    case 'tree': return projectTree(env, tenantId, projectId); case 'read': return readProjectFile(env, tenantId, projectId, tool.input.path); case 'search': return searchProjectFiles(env, tenantId, projectId, tool.input.query); case 'diff': return previewProjectDiff(env, tenantId, projectId, tool.input.path, tool.input.content, tool.input.expectedVersion); case 'patch': return applyProjectPatch(env, tenantId, projectId, tool.input.files);
+    case 'tree': return projectTree(env, tenantId, projectId); case 'read': return readProjectFile(env, tenantId, projectId, tool.input.path); case 'search': return searchProjectFiles(env, tenantId, projectId, tool.input.query); case 'diff': return previewProjectDiff(env, tenantId, projectId, tool.input.path, tool.input.content, tool.input.expectedVersion); case 'patch': return applyProjectPatch(env, tenantId, projectId, tool.input.files, requireFenceIdentity(fence!));
     case 'execute': {
       const identity = requireFenceIdentity(fence!);
-      if (tool.input.runtimeCapability) {
-        assertRuntimeCapabilityPolicy(tool.input.runtimeCapability, tool.input.preferredRuntimeKind, tool.input.approved === true);
-        const attemptId = `${identity.graphId}:runtime:${crypto.randomUUID()}`;
-        const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: attemptId, attemptId, capability: tool.input.runtimeCapability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
-        return { jobId: `runtime:${attemptId}`, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
-      }
-      return runProjectCommand(env, tenantId, projectId, tool.input.command, await listProjectFiles(env, tenantId, projectId), identity);
+      const capability = tool.input.runtimeCapability ?? 'command.exec';
+      assertRuntimeCapabilityPolicy(capability, tool.input.preferredRuntimeKind, tool.input.approved === true);
+      const attemptId = `${identity.graphId}:runtime:${crypto.randomUUID()}`;
+      const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: attemptId, attemptId, capability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
+      return { jobId: `runtime:${attemptId}`, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
     }
     case 'github-raw': return fetchGitHubRawFile(env, tool.input, tool.input.path, requireFenceIdentity(fence!)); case 'github-blob': return fetchGitHubBlob(env, tool.input, tool.input.sha, requireFenceIdentity(fence!)); case 'github-tree': return fetchGitHubTree(env, tool.input, requireFenceIdentity(fence!)); default: throw new Error('Unsupported project tool');
   }

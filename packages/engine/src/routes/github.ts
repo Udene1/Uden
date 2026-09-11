@@ -8,6 +8,15 @@ export const githubRoutes = new Hono<HonoEnv>();
 const status = (message: string) => message === 'Forbidden' ? 403 : 502;
 const repoParams = (c: any) => ({ owner: c.req.param('owner'), repo: c.req.param('repo') });
 
+// Direct provider writes are intentionally disabled here. Authenticated user
+// access must not become a second side-effect path around durable graph
+// authorization, fencing, idempotency and reconciliation. Writes go through
+// repository-operation-executor instead.
+githubRoutes.use('/repos/:owner/:repo/*', async (c,next) => {
+  if (['POST','PUT','PATCH','DELETE'].includes(c.req.method)) return c.json({error:'Direct GitHub mutations must execute through a durable graph repository operation'},409);
+  await next();
+});
+
  githubRoutes.get('/connect', async c => { try { await requirePermission(c.env.DB, c.get('tenantId'), 'settings:write'); return c.json({ authorizationUrl: await createGitHubAuthorizationUrl(c.env, c.get('tenantId')) }); } catch (error) { const message = sanitizeError(error); return c.json({ error: message }, message === 'Forbidden' ? 403 : 503); } });
 githubRoutes.get('/callback', async c => { try { const code = c.req.query('code'); const state = c.req.query('state'); if (c.req.query('error')) return c.json({ error: 'GitHub authorization was denied' }, 400); if (!code || !state) return c.json({ error: 'Missing OAuth callback parameters' }, 400); const result = await completeGitHubAuthorization(c.env, code, state); await writeAudit(c.env.DB, result.tenantId, 'github.connect', 'github_connection', undefined, 'github-oauth', undefined, { login: result.login }); return c.json({ connected: true, login: result.login }); } catch (error) { return c.json({ error: sanitizeError(error) }, 400); } });
 githubRoutes.delete('/connection', async c => { const tenantId = c.get('tenantId'); try { await requirePermission(c.env.DB, tenantId, 'settings:write'); await disconnectGitHub(c.env, tenantId); await writeAudit(c.env.DB, tenantId, 'github.disconnect', 'github_connection', undefined, undefined, c.get('requestId')); return c.json({ disconnected: true }); } catch (error) { const message = sanitizeError(error); return c.json({ error: message }, status(message)); } });

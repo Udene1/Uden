@@ -39,7 +39,7 @@ export async function remember(env: HonoEnv['Bindings'], tenantId: string, input
   if (!input.content.trim() || input.content.length > MAX_CONTENT) throw new Error('Memory content is invalid');
   assertScopeIdentity(input);
   const confidence = Math.max(0, Math.min(1, input.confidence));
-  const id = input.id || crypto.randomUUID();
+  const id = crypto.randomUUID();
   await env.DB.prepare(`INSERT INTO agent_memories (id,tenant_id,project_id,graph_id,node_id,kind,scope,key,content,source_type,source_id,confidence,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
     ON CONFLICT(tenant_id,scope,key) DO UPDATE SET project_id=excluded.project_id,graph_id=excluded.graph_id,node_id=excluded.node_id,kind=excluded.kind,content=excluded.content,source_type=excluded.source_type,source_id=excluded.source_id,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP`)

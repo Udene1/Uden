@@ -51,6 +51,8 @@ describe.sequential('external attempt persistence D1 integration', () => {
     await recordGraphAttempt(db, { id: 'attempt-stale-1', graphId: graph.id, nodeId: 'node', tenantId: 'attempt-tenant', attemptNumber: 1, model: 'gpt-test', provider: 'openai', status: 'running' });
     const staleFence = { owner: 'worker-a', fenceVersion: firstFence!, tenantId: 'attempt-tenant', graphId: graph.id };
     await markExternalAttemptInFlight(db, 'attempt-tenant', 'attempt-stale-1', 'uden:attempt-stale-1', staleFence);
+    // Reclaim is only legal after the previous graph lease is actually abandoned.
+    await db.prepare(`UPDATE task_graphs SET lease_until=datetime('now','-1 second') WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=?`).bind(graph.id,'attempt-tenant','worker-a',firstFence!).run();
     const secondFence = await acquireGraphExecutionLease(db, 'attempt-tenant', graph.id, 'worker-b');
     expect(secondFence).toBe(3);
     await expect(markExternalAttemptOutcome(db, 'attempt-tenant', 'attempt-stale-1', 'completed', staleFence)).rejects.toThrow('Graph execution lease lost');

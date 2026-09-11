@@ -57,11 +57,12 @@ describe.sequential('graph reliability D1 integration', () => {
     expect(persisted?.nodes).toHaveLength(4);
   });
 
-  it('recovers persisted running state after a crash and never leaves a node running', async () => {
+  it('recovers persisted running state only after the original graph generation is abandoned', async () => {
     const graph: TaskGraph = { id: 'crash-resume-graph', rootTaskId: 'reliability-crash-root', goal: 'crash resume', createdAt: new Date().toISOString(), nodes: [
       { id: 'recover', title: 'Recover', prompt: 'Recover this work', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'running', attemptedModels: ['gpt-4o-mini'] },
     ] };
     await persistGraph(db, 'reliability-tenant', graph);
+    await db.prepare(`UPDATE task_graphs SET execution_owner=?,lease_until=datetime('now','-1 second') WHERE id=? AND tenant_id=?`).bind('crashed-worker',graph.id,'reliability-tenant').run();
     const result = await resumeTaskGraph(env, 'reliability-tenant', 'crash-resume-graph');
     expect(result.status).toBe('failed');
     const persisted = await getPersistedGraph(db, 'reliability-tenant', 'crash-resume-graph');

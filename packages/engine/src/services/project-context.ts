@@ -3,10 +3,12 @@ import { listProjectFiles, searchProjectFiles, runProjectCommand, type ProjectFi
 import { applyProjectPatch, type ProjectPatchInput, type ProjectPatchResult } from './project-patch';
 import { fetchGitHubRawFile, fetchGitHubBlob, fetchGitHubTree } from './repository-capabilities';
 import type { ExecutionFence } from './execution-side-effects';
+import type { ExecutionRuntimeCapability, ExecutionRuntimeKind } from '@ai-work-partner/shared';
+import { dispatchRuntimeExecution } from './runtime-transport';
 
 const MAX_READ_BYTES = 200_000;
 const MAX_DIFF_LINES = 400;
-export interface ProjectContextFile { path: string; version: number; contentSha256: string; size: number; }
+export interface ProjectContextFile { path: string; version: number; contentSha256: string; }
 export interface ProjectDiffLine { type: 'context' | 'add' | 'remove'; line?: number; text: string; }
 export interface ProjectDiff { path: string; baseVersion: number | null; lines: ProjectDiffLine[]; truncated: boolean; }
 function safePath(path: string): string { const normalized = path.trim().replace(/\\/g, '/'); if (!normalized || normalized.startsWith('/') || normalized.includes('..') || normalized.includes('\0') || normalized.length > 500) throw new Error('Invalid project file path'); return normalized; }
@@ -15,13 +17,21 @@ export async function projectTree(env: Env, tenantId: string, projectId: string)
 function diffLines(base: string[], next: string[]): { lines: ProjectDiffLine[]; truncated: boolean } { const n = base.length, m = next.length; const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1)); for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = base[i] === next[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]); const out: ProjectDiffLine[] = []; let i = 0, j = 0; while (i < n && j < m && out.length < MAX_DIFF_LINES) { if (base[i] === next[j]) { out.push({ type: 'context', line: i + 1, text: base[i] }); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) out.push({ type: 'remove', line: i + 1, text: base[i++] }); else out.push({ type: 'add', text: next[j++] }); } while (i < n && out.length < MAX_DIFF_LINES) out.push({ type: 'remove', line: i + 1, text: base[i++] }); while (j < m && out.length < MAX_DIFF_LINES) out.push({ type: 'add', text: next[j++] }); return { lines: out, truncated: i < n || j < m }; }
 export async function previewProjectDiff(env: Env, tenantId: string, projectId: string, path: string, content: string, expectedVersion?: number): Promise<ProjectDiff> { const normalized = safePath(path); if (content.length > MAX_READ_BYTES) throw new Error('Project file exceeds diff limit'); let current: ProjectFile | null = null; try { current = await readProjectFile(env, tenantId, projectId, normalized); } catch (error) { if (!(error instanceof Error) || error.message !== 'Project file not found') throw error; } if (expectedVersion !== undefined && current?.version !== expectedVersion) throw new Error('Project file version conflict'); const diff = diffLines((current?.content ?? '').split(/\r?\n/), content.split(/\r?\n/)); return { path: normalized, baseVersion: current?.version ?? null, ...diff }; }
 export type ProjectTool =
-  | { name: 'tree'; input: Record<string, never> } | { name: 'read'; input: { path: string } } | { name: 'search'; input: { query: string } } | { name: 'diff'; input: { path: string; content: string; expectedVersion?: number } } | { name: 'patch'; input: { files: ProjectPatchInput[] } } | { name: 'execute'; input: { command: string } } | { name: 'github-raw'; input: { owner: string; repo: string; ref?: string; path: string } } | { name: 'github-blob'; input: { owner: string; repo: string; sha: string } } | { name: 'github-tree'; input: { owner: string; repo: string; ref?: string } };
+  | { name: 'tree'; input: Record<string, never> } | { name: 'read'; input: { path: string } } | { name: 'search'; input: { query: string } } | { name: 'diff'; input: { path: string; content: string; expectedVersion?: number } } | { name: 'patch'; input: { files: ProjectPatchInput[] } } | { name: 'execute'; input: { command: string; runtimeCapability?: ExecutionRuntimeCapability; preferredRuntimeKind?: ExecutionRuntimeKind; args?: readonly string[]; workingDirectory?: string } } | { name: 'github-raw'; input: { owner: string; repo: string; ref?: string; path: string } } | { name: 'github-blob'; input: { owner: string; repo: string; sha: string } } | { name: 'github-tree'; input: { owner: string; repo: string; ref?: string } };
 function requireFenceIdentity(fence: ExecutionFence): ExecutionFence & { tenantId:string; graphId:string } { if (!fence.tenantId || !fence.graphId) throw new Error('Execution fence identity is required'); return fence as ExecutionFence & { tenantId:string; graphId:string }; }
 export async function executeProjectTool(env: Env, tenantId: string, projectId: string, tool: ProjectTool, fence?: ExecutionFence): Promise<unknown> {
   if ((tool.name === 'execute' || tool.name.startsWith('github-')) && !fence) throw new Error('Execution fence is required for externally meaningful project capabilities');
   switch (tool.name) {
     case 'tree': return projectTree(env, tenantId, projectId); case 'read': return readProjectFile(env, tenantId, projectId, tool.input.path); case 'search': return searchProjectFiles(env, tenantId, projectId, tool.input.query); case 'diff': return previewProjectDiff(env, tenantId, projectId, tool.input.path, tool.input.content, tool.input.expectedVersion); case 'patch': return applyProjectPatch(env, tenantId, projectId, tool.input.files);
-    case 'execute': return runProjectCommand(env, tenantId, projectId, tool.input.command, await listProjectFiles(env, tenantId, projectId), requireFenceIdentity(fence!));
+    case 'execute': {
+      const identity = requireFenceIdentity(fence!);
+      if (tool.input.runtimeCapability) {
+        const attemptId = `${identity.graphId}:runtime:${crypto.randomUUID()}`;
+        const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: attemptId, attemptId, capability: tool.input.runtimeCapability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
+        return { jobId: `runtime:${attemptId}`, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
+      }
+      return runProjectCommand(env, tenantId, projectId, tool.input.command, await listProjectFiles(env, tenantId, projectId), identity);
+    }
     case 'github-raw': return fetchGitHubRawFile(env, tool.input, tool.input.path, requireFenceIdentity(fence!)); case 'github-blob': return fetchGitHubBlob(env, tool.input, tool.input.sha, requireFenceIdentity(fence!)); case 'github-tree': return fetchGitHubTree(env, tool.input, requireFenceIdentity(fence!)); default: throw new Error('Unsupported project tool');
   }
 }

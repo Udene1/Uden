@@ -90,9 +90,7 @@ describe.sequential('graph reliability D1 integration', () => {
     await persistGraph(db, 'reliability-tenant', graph);
     await db.prepare(`UPDATE task_graphs SET execution_owner=?,execution_version=?,lease_until=datetime('now','+120 seconds') WHERE id=? AND tenant_id=?`).bind('worker-a', 20, graph.id, 'reliability-tenant').run();
     const failedByA: TaskGraph = { ...graph, nodes: [{ ...graph.nodes[0], status: 'failed', error: 'worker A provider failure' }] };
-    await persistGraphSnapshot(db, 'reliability-tenant', graph, 'failed', null, 'worker A failed', { owner: 'worker-a', fenceVersion: 20 });
-    // A worker can reclaim only after the previous generation is actually abandoned.
-    await db.prepare(`UPDATE task_graphs SET lease_until=datetime('now','-1 second') WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=?`).bind(graph.id,'reliability-tenant','worker-a',20).run();
+    await persistGraphSnapshot(db, 'reliability-tenant', failedByA, 'failed', null, 'worker A failed', { owner: 'worker-a', fenceVersion: 20 });
     const workerBFence = await acquireGraphExecutionLease(db, 'reliability-tenant', graph.id, 'worker-b');
     expect(workerBFence).toBe(21);
     const recovered = await getPersistedGraph(db, 'reliability-tenant', graph.id);

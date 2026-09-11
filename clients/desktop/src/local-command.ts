@@ -9,6 +9,16 @@ export interface LocalCommandRequest {
   approved?: boolean;
 }
 
+export interface CloneRepositoryRequest {
+  workspaceRoot: string;
+  cwd: string;
+  url: string;
+  destination: string;
+  branch?: string;
+  depth?: number;
+  timeoutMs?: number;
+}
+
 export interface LocalCommandResult {
   status: number;
   success: boolean;
@@ -34,6 +44,20 @@ export async function runLocalCommand(request: LocalCommandRequest): Promise<Loc
       args: request.args ?? [],
       timeout_ms: request.timeoutMs ?? 120_000,
       approved: request.approved ?? false,
+    },
+  });
+}
+
+export async function cloneRepository(request: CloneRepositoryRequest): Promise<LocalCommandResult> {
+  return invoke<LocalCommandResult>('clone_repository', {
+    request: {
+      workspace_root: request.workspaceRoot,
+      cwd: request.cwd,
+      url: request.url,
+      destination: request.destination,
+      branch: request.branch ?? null,
+      depth: request.depth ?? null,
+      timeout_ms: request.timeoutMs ?? 10 * 60_000,
     },
   });
 }

@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import { listProjectFiles, searchProjectFiles, runProjectCommand, type ProjectFile, type RuntimeResult } from './project-runtime';
+import { listProjectFiles, searchProjectFiles, type ProjectFile, type RuntimeResult } from './project-runtime';
 import { applyProjectPatch, type ProjectPatchInput, type ProjectPatchResult } from './project-patch';
 import { fetchGitHubRawFile, fetchGitHubBlob, fetchGitHubTree } from './repository-capabilities';
 import type { ExecutionFence } from './execution-side-effects';

@@ -30,7 +30,7 @@ Workers/Hono, D1/KV, authentication, classifier, model registry/pricing, cost-aw
 Next.js App Router. Work-first experience with task composer, graph workspace, live execution timeline, approvals, projects/files, verification, provider/usage visibility, analytics and settings.
 
 ### Desktop
-Native-capable shell using the same API/domain contracts. Local capabilities are explicit and must cross the same execution-security boundaries; no duplicated engine semantics. The native bridge now has registered workspace roots, bounded direct process execution, safe repository cloning, and one-time native approval tokens for high-risk commands.
+Native-capable shell using the same API/domain contracts. Local capabilities are explicit and must cross the same execution-security boundaries; no duplicated engine semantics. The native bridge now has registered workspace roots, bounded direct process execution, safe repository cloning, one-time native approval tokens for high-risk commands, durable runtime registration/heartbeat, and fenced runtime execution.
 
 ### Mobile
 Companion client using shared contracts. It exposes the high-value operational subset rather than cloning desktop.
@@ -61,6 +61,9 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [x] Stable attempt identity and idempotent usage accounting.
 - [x] Queue background execution with retry/DLQ and graph resume.
 - [x] External execution fencing for provider/runtime/repository boundaries.
+- [x] Durable execution principal propagation through graph persistence and queue resume.
+- [x] Durable approval request/decision records with tenant-scoped principal authorization.
+- [x] Separate plan estimate, reservation and actual provider cost accounting.
 
 ### Existing web foundation
 - [x] Next.js dashboard shell/navigation.
@@ -77,6 +80,9 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [x] Atomic budget reservation/release.
 - [x] Real D1 reliability tests, including dependency blocking, budget exhaustion and crash/resume.
 - [x] External fence checks immediately around meaningful provider/runtime/repository calls.
+- [x] Runtime side effects fail closed before attempting stale fenced writes.
+- [x] Runtime execution records carry the exact graph owner + generation fence.
+- [x] Runtime authorization verifies advertised capability before dispatch.
 
 ### Permissions/observability/analytics
 - [x] Tenant roles and permission checks.
@@ -88,9 +94,6 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 
 ## Active engine gates
 - [ ] Observe the latest CI run green after the recent hardening changes.
-- [ ] Finish durable execution-principal persistence/propagation from authenticated request through queued/resumed execution.
-- [ ] Finish durable approval request/rejection records and workflow.
-- [ ] Persist plan-time estimated cost separately from actual usage/cost.
 - [ ] Add quantified routing-savings baseline from alternative-model pricing.
 - [ ] Add first real provider E2E using supplied credentials; never fake provider responses.
 - [ ] Deliberately review/remediate dependency security findings; do not blindly run `npm audit fix`.
@@ -104,9 +107,10 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [x] One-time native approval token for high-risk local commands.
 - [x] Shared execution-runtime contract separating cloud sandbox, cloud automation and desktop local execution.
 - [x] Durable server-side runtime registration, heartbeat, capability discovery and runtime-execution persistence API.
-- [ ] Have the desktop client register/heartbeat through the durable runtime API instead of memory-only local state.
-- [ ] Bind desktop runtime jobs to graph node/attempt IDs and execution fences end-to-end.
-- [ ] Durable reconnect/recovery when the desktop disappears during a local execution.
+- [x] Desktop durable runtime client and heartbeat supervisor.
+- [x] Desktop runtime execution wrapper binds local commands to graph attempt IDs and server-side execution fences.
+- [x] Runtime execution records persist owner + generation and reject stale completion after reclaim.
+- [ ] Durable reconnect/recovery when the desktop disappears during a local execution; ambiguous local side effects must reconcile before replay.
 - [ ] Route project/git work to desktop runtime only when the graph has an eligible local capability.
 - [ ] Add native UI for workspace registration and approval review; never hide dangerous execution behind a generic "run" button.
 
@@ -145,4 +149,4 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 A milestone is done only when integrated into the real architecture, preserves existing behavior, has appropriate tests, keeps real integrations intact, is verified as far as the environment permits, is committed clearly, and this plan is updated.
 
 ## Immediate next action
-**Bind the durable runtime API to the desktop client and graph executor, including runtime leases, attempt fencing, reconnect/recovery and capability-aware routing; then close repository-operation reconciliation and the real GitHub pull-request-files adapter.**
+**Finish runtime reconnect/reconciliation and capability-aware graph routing; then close repository-operation reconciliation and the real GitHub pull-request-files adapter before shifting hard into the web workbench.**

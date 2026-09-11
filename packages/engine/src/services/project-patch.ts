@@ -16,23 +16,24 @@ function validatePatch(inputs: ProjectPatchInput[]): void {
   if (inputs.some(file => !Number.isInteger(file.expectedVersion) || (file.expectedVersion as number) < 0)) throw new Error('Project patch requires an expected version for every file');
 }
 
-export async function applyProjectPatch(env: Env, tenantId: string, projectId: string, inputs: ProjectPatchInput[], fence: ExecutionFence): Promise<ProjectPatchResult[]> {
+export async function applyProjectPatch(env: Env, tenantId: string, projectId: string, inputs: ProjectPatchInput[], fence?: ExecutionFence): Promise<ProjectPatchResult[]> {
   validatePatch(inputs);
-  if (!fence.tenantId || !fence.graphId) throw new Error('Execution fence identity is required');
-  await assertExecutionFence(env.DB, tenantId, fence.graphId, fence);
+  if (fence) {
+    if (!fence.tenantId || !fence.graphId) throw new Error('Execution fence identity is required');
+    await assertExecutionFence(env.DB, tenantId, fence.graphId, fence);
+  }
   const results: ProjectPatchResult[] = [];
   for (const file of inputs) {
     const updated = await upsertProjectFile(env, tenantId, projectId, file.path, file.content, file.expectedVersion, fence);
     results.push({ path: updated.path, version: updated.version, contentSha256: updated.contentSha256 });
-    const patch = await env.DB.prepare(`
-      INSERT INTO project_patches (id,tenant_id,project_id,path,base_version,content_sha256,status)
-      SELECT ?,?,?,?,?,?,'applied'
-      WHERE EXISTS (
-        SELECT 1 FROM task_graphs
-        WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP
-      )
-    `).bind(crypto.randomUUID(), tenantId, projectId, updated.path, file.expectedVersion, updated.contentSha256, fence.graphId, tenantId, fence.owner, fence.fenceVersion).run();
-    if (!patch.meta?.changes) throw new Error('Execution fence lost while recording project patch');
+    const patch = fence
+      ? await env.DB.prepare(`
+          INSERT INTO project_patches (id,tenant_id,project_id,path,base_version,content_sha256,status)
+          SELECT ?,?,?,?,?,?,'applied'
+          WHERE EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP)
+        `).bind(crypto.randomUUID(), tenantId, projectId, updated.path, file.expectedVersion, updated.contentSha256, fence.graphId, tenantId, fence.owner, fence.fenceVersion).run()
+      : await env.DB.prepare(`INSERT INTO project_patches (id,tenant_id,project_id,path,base_version,content_sha256,status) VALUES (?,?,?,?,?,?,?)`).bind(crypto.randomUUID(), tenantId, projectId, updated.path, file.expectedVersion, updated.contentSha256, 'applied').run();
+    if (!patch.meta?.changes) throw new Error('Project patch record was not applied');
   }
   return results;
 }

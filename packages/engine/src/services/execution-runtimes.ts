@@ -4,7 +4,7 @@ import type { ExecutionRuntimeCapability, ExecutionRuntimeDescriptor, ExecutionR
 const RUNTIME_HEARTBEAT_TIMEOUT_SECONDS = 90;
 
 type RuntimeRow = { id:string; tenant_id:string; kind:ExecutionRuntimeKind; state:ExecutionRuntimeState; capabilities_json:string; last_heartbeat_at:string; metadata_json:string|null; created_at:string; updated_at:string };
-type ExecutionRow = { id:string; tenant_id:string; runtime_id:string; graph_id:string; node_id:string; attempt_id:string; execution_version:number; capability:ExecutionRuntimeCapability; status:'authorized'|'in_flight'|'completed'|'failed'|'timed_out'|'unknown'; external_operation_id:string|null; working_directory:string|null; command:string|null; args_json:string|null; stdout:string|null; stderr:string|null; exit_code:number|null; error:string|null; started_at:string|null; finished_at:string|null; created_at:string; updated_at:string };
+type ExecutionRow = { id:string; tenant_id:string; runtime_id:string; graph_id:string; node_id:string; attempt_id:string; execution_version:number; execution_owner:string; capability:ExecutionRuntimeCapability; status:'authorized'|'in_flight'|'completed'|'failed'|'timed_out'|'unknown'; external_operation_id:string|null; working_directory:string|null; command:string|null; args_json:string|null; stdout:string|null; stderr:string|null; exit_code:number|null; error:string|null; started_at:string|null; finished_at:string|null; created_at:string; updated_at:string };
 
 const parseArray=(value:string|null):ExecutionRuntimeCapability[]=>{try{const parsed=JSON.parse(value||'[]');return Array.isArray(parsed)?parsed:[];}catch{return[];}};
 const parseMetadata=(value:string|null):Record<string,string>|undefined=>{try{const parsed=JSON.parse(value||'null');return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:undefined;}catch{return undefined;}};
@@ -13,6 +13,7 @@ const mapExecution=(row:ExecutionRow):RuntimeExecutionResult=>({runtimeId:row.ru
 
 export async function registerExecutionRuntime(db:D1Database,tenantId:string,runtime:ExecutionRuntimeDescriptor):Promise<ExecutionRuntimeDescriptor>{
   if(runtime.tenantId!==tenantId)throw new Error('Runtime tenant mismatch');
+  if(!runtime.id.trim()||runtime.capabilities.length===0)throw new Error('Runtime id and capabilities are required');
   const row=await db.prepare(`INSERT INTO execution_runtimes (id,tenant_id,kind,state,capabilities_json,last_heartbeat_at,metadata_json) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET tenant_id=excluded.tenant_id,kind=excluded.kind,state=excluded.state,capabilities_json=excluded.capabilities_json,last_heartbeat_at=excluded.last_heartbeat_at,metadata_json=excluded.metadata_json,updated_at=CURRENT_TIMESTAMP WHERE execution_runtimes.tenant_id=excluded.tenant_id RETURNING *`).bind(runtime.id,tenantId,runtime.kind,runtime.state,JSON.stringify(runtime.capabilities),runtime.lastHeartbeatAt,runtime.metadata?JSON.stringify(runtime.metadata):null).first<RuntimeRow>();
   if(!row)throw new Error('Runtime registration rejected');return mapRuntime(row);
 }
@@ -27,10 +28,17 @@ export async function listEligibleExecutionRuntimes(db:D1Database,tenantId:strin
   return(rows.results||[]).map(mapRuntime).filter(runtime=>runtime.capabilities.includes(capability));
 }
 
+async function assertRuntimeFence(db:D1Database,tenantId:string,request:RuntimeExecutionRequest):Promise<void>{
+  const row=await db.prepare(`SELECT 1 AS valid FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP`).bind(request.graphId,tenantId,request.executionOwner,request.executionVersion).first();
+  if(!row)throw new Error('Graph execution lease lost');
+}
+
 export async function authorizeRuntimeExecution(db:D1Database,tenantId:string,request:RuntimeExecutionRequest):Promise<RuntimeExecutionResult>{
-  const runtime=await db.prepare(`SELECT id FROM execution_runtimes WHERE tenant_id=? AND id=? AND state='online' AND last_heartbeat_at>=datetime('now','-${RUNTIME_HEARTBEAT_TIMEOUT_SECONDS} seconds')`).bind(tenantId,request.runtimeId).first<{id:string}>();
-  if(!runtime)throw new Error('Execution runtime is unavailable');
-  const row=await db.prepare(`INSERT INTO runtime_executions (id,tenant_id,runtime_id,graph_id,node_id,attempt_id,execution_version,capability,status,working_directory,command,args_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_version=? AND execution_owner IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) ON CONFLICT(tenant_id,attempt_id) DO NOTHING RETURNING *`).bind(request.attemptId,tenantId,request.runtimeId,request.graphId,request.nodeId,request.attemptId,request.executionVersion,request.capability,'authorized',request.workingDirectory??null,request.command??null,request.args?JSON.stringify(request.args):null,request.graphId,tenantId,request.executionVersion).first<ExecutionRow>();
+  if(!request.executionOwner||!request.executionVersion)throw new Error('Runtime execution fence is required');
+  await assertRuntimeFence(db,tenantId,request);
+  const runtime=await db.prepare(`SELECT id FROM execution_runtimes WHERE tenant_id=? AND id=? AND state='online' AND last_heartbeat_at>=datetime('now','-${RUNTIME_HEARTBEAT_TIMEOUT_SECONDS} seconds') AND EXISTS (SELECT 1 FROM json_each(execution_runtimes.capabilities_json) WHERE value=?)`).bind(tenantId,request.runtimeId,request.capability).first<{id:string}>();
+  if(!runtime)throw new Error('Execution runtime is unavailable or lacks the requested capability');
+  const row=await db.prepare(`INSERT INTO runtime_executions (id,tenant_id,runtime_id,graph_id,node_id,attempt_id,execution_version,execution_owner,capability,status,working_directory,command,args_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP) ON CONFLICT(tenant_id,attempt_id) DO NOTHING RETURNING *`).bind(request.attemptId,tenantId,request.runtimeId,request.graphId,request.nodeId,request.attemptId,request.executionVersion,request.executionOwner,request.capability,'authorized',request.workingDirectory??null,request.command??null,request.args?JSON.stringify(request.args):null,request.graphId,tenantId,request.executionOwner,request.executionVersion).first<ExecutionRow>();
   if(row)return mapExecution(row);
   const existing=await db.prepare(`SELECT * FROM runtime_executions WHERE tenant_id=? AND attempt_id=?`).bind(tenantId,request.attemptId).first<ExecutionRow>();
   if(existing)return mapExecution(existing);
@@ -38,12 +46,14 @@ export async function authorizeRuntimeExecution(db:D1Database,tenantId:string,re
 }
 
 export async function markRuntimeExecutionInFlight(db:D1Database,tenantId:string,request:RuntimeExecutionRequest):Promise<RuntimeExecutionResult>{
-  const row=await db.prepare(`UPDATE runtime_executions SET status='in_flight',started_at=COALESCE(started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND runtime_id=? AND graph_id=? AND node_id=? AND execution_version=? AND status='authorized' AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_version=? AND execution_owner IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) RETURNING *`).bind(tenantId,request.attemptId,request.runtimeId,request.graphId,request.nodeId,request.executionVersion,request.graphId,tenantId,request.executionVersion).first<ExecutionRow>();
-  if(!row)throw new Error('Graph execution fence lost before runtime side effect');return mapExecution(row);
+  await assertRuntimeFence(db,tenantId,request);
+  const row=await db.prepare(`UPDATE runtime_executions SET status='in_flight',started_at=COALESCE(started_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND runtime_id=? AND graph_id=? AND node_id=? AND execution_owner=? AND execution_version=? AND status='authorized' RETURNING *`).bind(tenantId,request.attemptId,request.runtimeId,request.graphId,request.nodeId,request.executionOwner,request.executionVersion).first<ExecutionRow>();
+  if(!row)throw new Error('Runtime execution transition rejected');return mapExecution(row);
 }
 
 export async function completeRuntimeExecution(db:D1Database,tenantId:string,request:RuntimeExecutionRequest,result:RuntimeExecutionResult):Promise<RuntimeExecutionResult>{
-  const row=await db.prepare(`UPDATE runtime_executions SET status=?,external_operation_id=?,stdout=?,stderr=?,exit_code=?,error=?,finished_at=?,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND runtime_id=? AND execution_version=? AND status='in_flight' AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_version=? AND execution_owner IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) RETURNING *`).bind(result.outcome==='timed_out'?'timed_out':result.outcome==='unknown'?'unknown':result.outcome==='completed'?'completed':'failed',result.externalOperationId??null,(result.stdout||'').slice(0,100000),(result.stderr||'').slice(0,100000),result.exitCode??null,result.error?.slice(0,4000)??null,result.finishedAt,tenantId,request.attemptId,request.runtimeId,request.executionVersion,request.graphId,tenantId,request.executionVersion).first<ExecutionRow>();
+  await assertRuntimeFence(db,tenantId,request);
+  const row=await db.prepare(`UPDATE runtime_executions SET status=?,external_operation_id=?,stdout=?,stderr=?,exit_code=?,error=?,finished_at=?,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND runtime_id=? AND execution_owner=? AND execution_version=? AND status='in_flight' RETURNING *`).bind(result.outcome==='timed_out'?'timed_out':result.outcome==='unknown'?'unknown':result.outcome==='completed'?'completed':'failed',result.externalOperationId??null,(result.stdout||'').slice(0,100000),(result.stderr||'').slice(0,100000),result.exitCode??null,result.error?.slice(0,4000)??null,result.finishedAt,tenantId,request.attemptId,request.runtimeId,request.executionOwner,request.executionVersion).first<ExecutionRow>();
   if(!row)throw new Error('Runtime execution completion rejected by execution fence');return mapExecution(row);
 }
 

@@ -22,6 +22,7 @@ export interface AgentMemory {
 
 const MAX_CONTENT = 20_000;
 const MAX_RESULTS = 20;
+const MAX_CONTEXT_CHARS = 24_000;
 
 function validScope(scope: AgentMemoryScope): boolean {
   return ['tenant', 'project', 'graph', 'node'].includes(scope);
@@ -49,24 +50,49 @@ export async function remember(env: HonoEnv['Bindings'], tenantId: string, input
   return mapMemory(row);
 }
 
-export async function recall(env: HonoEnv['Bindings'], tenantId: string, options: { projectId?: string; graphId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
+export async function recall(db: D1Database, tenantId: string, options: { projectId?: string; graphId?: string; nodeId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
   const limit = Math.min(MAX_RESULTS, Math.max(1, options.limit ?? 10));
   const scope = options.scope;
   const query = options.query?.trim();
-  const rows = await env.DB.prepare(`SELECT * FROM agent_memories
+  const rows = await db.prepare(`SELECT * FROM agent_memories
     WHERE tenant_id=?
       AND (? IS NULL OR scope=?)
       AND (? IS NULL OR project_id=? OR scope='tenant')
       AND (? IS NULL OR graph_id=? OR scope IN ('tenant','project'))
+      AND (? IS NULL OR scope!='node' OR node_id=?)
+      AND (? IS NOT NULL OR scope!='node')
       AND (? IS NULL OR lower(key || ' ' || content) LIKE lower('%' || ? || '%'))
     ORDER BY confidence DESC, updated_at DESC LIMIT ?`)
-    .bind(tenantId,scope ?? null,scope ?? null,options.projectId ?? null,options.projectId ?? null,options.graphId ?? null,options.graphId ?? null,query ?? null,query ?? null,limit).all<any>();
+    .bind(
+      tenantId,
+      scope ?? null,
+      scope ?? null,
+      options.projectId ?? null,
+      options.projectId ?? null,
+      options.graphId ?? null,
+      options.graphId ?? null,
+      options.nodeId ?? null,
+      options.nodeId ?? null,
+      options.nodeId ?? null,
+      query ?? null,
+      query ?? null,
+      limit,
+    )
+    .all<any>();
   return (rows.results ?? []).map(mapMemory);
 }
 
 export function formatMemoryContext(memories: AgentMemory[]): string {
   if (memories.length === 0) return '';
-  return ['## Durable memory', ...memories.map(memory => `- [${memory.kind}/${memory.scope}] ${memory.key}: ${memory.content}`)].join('\n');
+  const lines: string[] = ['## Durable memory'];
+  let length = lines[0].length;
+  for (const memory of memories) {
+    const line = `- [${memory.kind}/${memory.scope}] ${memory.key}: ${memory.content}`;
+    if (length + line.length + 1 > MAX_CONTEXT_CHARS) break;
+    lines.push(line);
+    length += line.length + 1;
+  }
+  return lines.join('\n');
 }
 
 function mapMemory(row: any): AgentMemory {

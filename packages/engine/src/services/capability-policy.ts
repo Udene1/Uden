@@ -21,3 +21,11 @@ export function assertCapabilityPolicy(node: TaskNode): void {
   if (policy.capability === 'interactive.process' && node.preferredRuntimeKind === 'cloud_automation') throw new Error('interactive.process cannot target cloud_automation');
   if (policy.capability === 'git.write' && !node.preferredRuntimeKind) return;
 }
+
+export function assertRuntimeCapabilityPolicy(capability: ExecutionRuntimeCapability, preferredRuntimeKind?: ExecutionRuntimeKind, approved = false): CapabilityPolicy {
+  const riskLevel: CapabilityPolicy['riskLevel'] = capability === 'network.outbound' && preferredRuntimeKind === 'desktop_local' ? 'critical' : HIGH_RISK_CAPABILITIES.has(capability) ? 'high' : 'medium';
+  const approvalRequired = HIGH_RISK_CAPABILITIES.has(capability);
+  if (capability === 'interactive.process' && preferredRuntimeKind === 'cloud_automation') throw new Error('interactive.process cannot target cloud_automation');
+  if (approvalRequired && !approved) throw new Error(`Runtime capability ${capability} requires explicit approval before execution`);
+  return { capability, preferredRuntimeKind, riskLevel, approvalRequired, reason: approvalRequired ? `Capability ${capability} crosses an external side-effect boundary` : undefined };
+}

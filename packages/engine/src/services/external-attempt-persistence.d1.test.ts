@@ -19,6 +19,7 @@ describe.sequential('external attempt persistence D1 integration', () => {
     await applyCurrentD1Schema(db, engineRoot);
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('attempt-tenant','Attempt persistence','attempt@example.test','attempt-hash',100).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('attempt-root','attempt-tenant','attempt persistence test','processing').run();
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('attempt-stale-root','attempt-tenant','stale attempt persistence test','processing').run();
   });
 
   afterAll(async () => { await dispose?.(); });
@@ -41,7 +42,7 @@ describe.sequential('external attempt persistence D1 integration', () => {
 
   it('rejects a stale worker from changing an external outcome after reclaim', async () => {
     const graph: TaskGraph = {
-      id: 'attempt-stale-graph', rootTaskId: 'attempt-root', goal: 'stale external attempt', createdAt: new Date().toISOString(),
+      id: 'attempt-stale-graph', rootTaskId: 'attempt-stale-root', goal: 'stale external attempt', createdAt: new Date().toISOString(),
       nodes: [{ id: 'node', title: 'Node', prompt: 'work', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [] }],
     };
     await persistGraph(db, 'attempt-tenant', graph);

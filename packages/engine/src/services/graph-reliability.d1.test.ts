@@ -14,11 +14,12 @@ describe.sequential('graph reliability D1 integration', () => {
   const env = {} as any;
 
   beforeAll(async () => {
-    const platform = await getPlatformProxy({ configPath: resolve(process.cwd(), 'packages/engine/wrangler.test.jsonc'), persist: false });
+    const engineRoot = resolve(process.cwd());
+    const platform = await getPlatformProxy({ configPath: resolve(engineRoot, 'wrangler.test.jsonc'), persist: false });
     db = platform.env.DB as D1Database;
     env.DB = db;
     dispose = platform.dispose;
-    await applyCurrentD1Schema(db, resolve(process.cwd(), 'packages/engine'));
+    await applyCurrentD1Schema(db, engineRoot);
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('reliability-tenant', 'Reliability', 'r@example.test', 'reliability-hash', 10).run();
     for (const [id, prompt] of [
       ['reliability-root', 'dependency graph test'],

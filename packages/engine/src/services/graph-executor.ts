@@ -5,7 +5,7 @@ import { getProvider } from './providers';
 import { executeDurableProviderAttempt } from './provider-attempt-execution';
 import { routeGraphNode } from './graph-router';
 import { createEscalationLog, createTask, getMonthlySpend, getTenantById, updateTask } from '../db/queries';
-import { persistGraph, persistGraphSnapshot, recordGraphAttempt as recordGraphAttemptUnfenced, acquireGraphExecutionLease, getPersistedGraph } from './graph-persistence';
+import { persistGraph, persistGraphSnapshot, acquireGraphExecutionLease, getPersistedGraph } from './graph-persistence';
 import { classifyTask } from './classifier';
 import { sanitizeProviderError, isAmbiguousProviderError } from './provider-errors';
 import { executeProjectTool, type ProjectTool, type RuntimeResult } from './project-context';

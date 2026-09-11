@@ -8,7 +8,10 @@ import { readGitHubObjectsBatch, type GitHubBatchObject } from '../services/gith
 export const githubBatchRoutes = new Hono<HonoEnv>();
 
 function repoParams(c: Context<HonoEnv>): { owner: string; repo: string } {
-  return { owner: c.req.param('owner'), repo: c.req.param('repo') };
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  if (!owner || !repo) throw new Error('GitHub repository owner and name are required');
+  return { owner, repo };
 }
 
 githubBatchRoutes.post('/repos/:owner/:repo/objects/batch', async c => {

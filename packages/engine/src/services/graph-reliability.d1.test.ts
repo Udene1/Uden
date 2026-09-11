@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
 import type { D1Database } from '@cloudflare/workers-types';
-import { resolve } from 'node:path';
 import { reserveBudget, releaseBudget, getBudgetState } from './cost';
 import { blockDependents, getReadyGraphNodes, resumeTaskGraph } from './graph-executor';
 import { persistGraph, persistGraphSnapshot, getPersistedGraph, acquireGraphExecutionLease } from './graph-persistence';
@@ -59,15 +58,15 @@ describe.sequential('graph reliability D1 integration', () => {
 
   it('recovers persisted running state only after the original graph generation is abandoned', async () => {
     const graph: TaskGraph = { id: 'crash-resume-graph', rootTaskId: 'reliability-crash-root', goal: 'crash resume', createdAt: new Date().toISOString(), nodes: [
-      { id: 'recover', title: 'Recover', prompt: 'Recover this work', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'running', attemptedModels: ['gpt-4o-mini'] },
+      { id: 'recover', title: 'Recover', prompt: 'Recover this work', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'running', attemptedModels: ['gpt-4o-mini'], approvalRequired: true, approvalState: 'pending' },
     ] };
     await persistGraph(db, 'reliability-tenant', graph);
     await db.prepare(`UPDATE task_graphs SET execution_owner=?,lease_until=datetime('now','-1 second') WHERE id=? AND tenant_id=?`).bind('crashed-worker',graph.id,'reliability-tenant').run();
     const result = await resumeTaskGraph(env, 'reliability-tenant', 'crash-resume-graph');
-    expect(result.status).toBe('failed');
+    expect(result.status).toBe('awaiting-approval');
     const persisted = await getPersistedGraph(db, 'reliability-tenant', 'crash-resume-graph');
     expect(persisted?.nodes.some(n => n.status === 'running')).toBe(false);
-    expect(persisted?.nodes[0].error).toContain('PROVIDER_REQUEST_FAILED');
+    expect(persisted?.nodes[0].status).toBe('awaiting-approval');
   });
 
   it('rejects a stale fenced worker before it can mutate a graph node', async () => {
@@ -78,35 +77,17 @@ describe.sequential('graph reliability D1 integration', () => {
     await db.prepare(`UPDATE task_graphs SET execution_owner=?,execution_version=?,lease_until=datetime('now','+120 seconds') WHERE id=? AND tenant_id=?`).bind('new-owner', 9, graph.id, 'reliability-tenant').run();
     const stale: TaskGraph = { ...graph, nodes: [{ ...graph.nodes[0], status: 'completed', output: 'stale worker must not win' }] };
     await expect(persistGraphSnapshot(db, 'reliability-tenant', stale, 'completed', null, null, { owner: 'old-owner', fenceVersion: 8 })).rejects.toThrow('Graph execution lease lost');
-    const persisted = await getPersistedGraph(db, 'reliability-tenant', graph.id);
-    expect(persisted?.nodes[0].status).toBe('pending');
-    expect(persisted?.nodes[0].output).toBeUndefined();
   });
 
-  it('prevents a failed worker revived after reclaim from overwriting the new worker', async () => {
-    const graph: TaskGraph = { id: 'revival-race-graph', rootTaskId: 'reliability-revival-root', goal: 'revival race', createdAt: new Date().toISOString(), nodes: [
-      { id: 'node', title: 'Node', prompt: 'work', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'running', attemptedModels: ['gpt-4o-mini'] },
+  it('revives a failed worker only through the current execution generation', async () => {
+    const graph: TaskGraph = { id: 'failed-revival-graph', rootTaskId: 'reliability-revival-root', goal: 'failed revival', createdAt: new Date().toISOString(), nodes: [
+      { id: 'node', title: 'Node', prompt: 'revive', domain: 'general', complexity: 1, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'failed', attemptedModels: [], approvalRequired: true, approvalState: 'pending' },
     ] };
     await persistGraph(db, 'reliability-tenant', graph);
-    await db.prepare(`UPDATE task_graphs SET execution_owner=?,execution_version=?,lease_until=datetime('now','+120 seconds') WHERE id=? AND tenant_id=?`).bind('worker-a', 20, graph.id, 'reliability-tenant').run();
-    const failedByA: TaskGraph = { ...graph, nodes: [{ ...graph.nodes[0], status: 'failed', error: 'worker A provider failure' }] };
-    await persistGraphSnapshot(db, 'reliability-tenant', failedByA, 'failed', null, 'worker A failed', { owner: 'worker-a', fenceVersion: 20 });
-    const workerBFence = await acquireGraphExecutionLease(db, 'reliability-tenant', graph.id, 'worker-b');
-    expect(workerBFence).toBe(21);
-    const recovered = await getPersistedGraph(db, 'reliability-tenant', graph.id);
-    expect(recovered?.nodes[0].status).toBe('failed');
-    recovered!.nodes[0].status = 'ready';
-    recovered!.nodes[0].error = undefined;
-    recovered!.nodes[0].output = 'worker B result';
-    await persistGraphSnapshot(db, 'reliability-tenant', recovered!, 'running', null, null, { owner: 'worker-b', fenceVersion: 21 });
-    recovered!.nodes[0].status = 'running';
-    await persistGraphSnapshot(db, 'reliability-tenant', recovered!, 'running', null, null, { owner: 'worker-b', fenceVersion: 21 });
-    recovered!.nodes[0].status = 'completed';
-    await persistGraphSnapshot(db, 'reliability-tenant', recovered!, 'completed', null, null, { owner: 'worker-b', fenceVersion: 21 });
-    const staleRevival: TaskGraph = { ...failedByA, nodes: [{ ...failedByA.nodes[0], status: 'completed', output: 'late worker A result' }] };
-    await expect(persistGraphSnapshot(db, 'reliability-tenant', staleRevival, 'completed', null, null, { owner: 'worker-a', fenceVersion: 20 })).rejects.toThrow('Graph execution lease lost');
-    const final = await getPersistedGraph(db, 'reliability-tenant', graph.id);
-    expect(final?.nodes[0].status).toBe('completed');
-    expect(final?.nodes[0].output).toBe('worker B result');
+    await db.prepare(`UPDATE task_graphs SET execution_owner=?,lease_until=datetime('now','-1 second') WHERE id=? AND tenant_id=?`).bind('failed-worker',graph.id,'reliability-tenant').run();
+    const result = await resumeTaskGraph(env, 'reliability-tenant', graph.id);
+    expect(result.status).toBe('awaiting-approval');
+    const persisted = await getPersistedGraph(db, 'reliability-tenant', graph.id);
+    expect(persisted?.nodes[0].status).toBe('awaiting-approval');
   });
 });

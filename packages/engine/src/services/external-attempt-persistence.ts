@@ -32,7 +32,7 @@ export async function markExternalAttemptInFlight(
     RETURNING id
   `).bind(idempotencyKey, attemptId, tenantId, idempotencyKey, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
 
-  if (!row) throw new Error('Graph execution lease lost or external attempt identity/state rejected');
+  if (!row) throw new Error('Graph execution lease lost or external attempt transition rejected');
 }
 
 export async function markExternalAttemptOutcome(

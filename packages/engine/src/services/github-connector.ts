@@ -10,6 +10,7 @@ export interface GitHubRepository { id: number; full_name: string; name: string;
 export interface GitHubFile { path: string; sha: string; size: number; type: string; content?: string; encoding?: string; html_url?: string; }
 export interface GitHubBlob { sha: string; size: number; url: string; content?: string; encoding?: string; }
 export interface GitHubRef { ref: string; node_id: string; object: { sha: string; type: string; url: string }; }
+export interface GitHubWriteFile { path: string; content?: string; encoding?: 'utf-8' | 'base64'; delete?: boolean; mode?: '100644' | '100755' | '120000'; }
 
 function requireConfig(env: Env): void {
   if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.GITHUB_REDIRECT_URI || !env.GITHUB_TOKEN_ENCRYPTION_KEY) throw new Error('GitHub integration is not configured');
@@ -49,9 +50,11 @@ export async function completeGitHubAuthorization(env: Env, code: string, state:
 }
 
 async function getToken(env: Env, tenantId: string): Promise<string> { requireConfig(env); const row = await env.DB.prepare('SELECT access_token_encrypted FROM github_connections WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 1').bind(tenantId).first<{ access_token_encrypted: string }>(); if (!row) throw new Error('GitHub is not connected'); return decrypt(row.access_token_encrypted, env.GITHUB_TOKEN_ENCRYPTION_KEY!); }
-async function githubRequest<T>(env: Env, token: string, path: string, init: RequestInit = {}): Promise<T> { const headers = new Headers(init.headers); headers.set('Accept', 'application/vnd.github+json'); headers.set('X-GitHub-Api-Version', '2022-11-28'); headers.set('User-Agent', 'Uden/1.0'); headers.set('Authorization', `Bearer ${token}`); const response = await fetch(`${API_URL}${path}`, { ...init, headers }); if (!response.ok) { if (response.status === 401) throw new Error('GitHub authorization expired'); if (response.status === 403) throw new Error('GitHub API permission or rate limit exceeded'); if (response.status === 404) throw new Error('GitHub resource not found'); throw new Error(`GitHub API request failed (${response.status})`); } return response.json() as Promise<T>; }
+async function githubRequest<T>(env: Env, token: string, path: string, init: RequestInit = {}): Promise<T> { const headers = new Headers(init.headers); headers.set('Accept', 'application/vnd.github+json'); headers.set('X-GitHub-Api-Version', '2022-11-28'); headers.set('User-Agent', 'Uden/1.0'); headers.set('Authorization', `Bearer ${token}`); if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json'); const response = await fetch(`${API_URL}${path}`, { ...init, headers }); if (!response.ok) { if (response.status === 401) throw new Error('GitHub authorization expired'); if (response.status === 403) throw new Error('GitHub API permission or rate limit exceeded'); if (response.status === 404) throw new Error('GitHub resource not found'); if (response.status === 409) throw new Error('GitHub repository state changed; retry from the latest ref'); if (response.status === 422) throw new Error('GitHub rejected the repository mutation'); throw new Error(`GitHub API request failed (${response.status})`); } return response.status === 204 ? undefined as T : response.json() as Promise<T>; }
 function repoPath(owner: string, repo: string, suffix = '') { if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) throw new Error('Invalid GitHub repository'); return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}${suffix}`; }
 function objectSha(value: string, label: string): string { const sha = value.trim(); if (!/^[a-f0-9]{7,64}$/i.test(sha)) throw new Error(`Invalid GitHub ${label} SHA`); return sha; }
+function branchName(value: string): string { const branch = value.trim(); if (!/^[A-Za-z0-9._\/-]+$/.test(branch) || branch.startsWith('/') || branch.endsWith('/') || branch.includes('..') || branch.includes('@{')) throw new Error('Invalid GitHub branch name'); return branch; }
+function filePath(value: string): string { const path = value.trim(); if (!path || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Invalid GitHub file path'); return path; }
 
 export async function disconnectGitHub(env: Env, tenantId: string): Promise<void> { await env.DB.prepare('DELETE FROM github_connections WHERE tenant_id=?').bind(tenantId).run(); }
 export async function listGitHubRepositories(env: Env, tenantId: string): Promise<GitHubRepository[]> { const token = await getToken(env, tenantId); return githubRequest<GitHubRepository[]>(env, token, '/user/repos?sort=updated&per_page=100'); }
@@ -68,3 +71,39 @@ export async function listGitHubPulls(env: Env, tenantId: string, owner: string,
 export async function getGitHubPull(env: Env, tenantId: string, owner: string, repo: string, number: number): Promise<unknown> { const token = await getToken(env, tenantId); if (!Number.isInteger(number) || number < 1) throw new Error('Invalid pull request number'); return githubRequest(env, token, repoPath(owner, repo, `/pulls/${number}`)); }
 export async function getGitHubPullDiff(env: Env, tenantId: string, owner: string, repo: string, number: number): Promise<string> { const token = await getToken(env, tenantId); if (!Number.isInteger(number) || number < 1) throw new Error('Invalid pull request number'); const response = await fetch(`${API_URL}${repoPath(owner, repo, `/pulls/${number}`)}`, { headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'Uden/1.0', Accept: 'application/vnd.github.diff', 'X-GitHub-Api-Version': '2022-11-28' } }); if (!response.ok) throw new Error(`GitHub pull request diff failed (${response.status})`); return (await response.text()).slice(0, MAX_READ); }
 export async function listGitHubActionsRuns(env: Env, tenantId: string, owner: string, repo: string, branch?: string): Promise<unknown> { const token = await getToken(env, tenantId); const query = branch ? `?branch=${encodeURIComponent(branch)}&per_page=50` : '?per_page=50'; return githubRequest(env, token, `${repoPath(owner, repo, '/actions/runs')}${query}`); }
+
+export async function createGitHubBranch(env: Env, tenantId: string, owner: string, repo: string, branch: string, fromSha: string): Promise<unknown> {
+  const token = await getToken(env, tenantId); const name = branchName(branch); const sha = objectSha(fromSha, 'commit');
+  return githubRequest(env, token, repoPath(owner, repo, '/git/refs'), { method: 'POST', body: JSON.stringify({ ref: `refs/heads/${name}`, sha }) });
+}
+
+export async function commitGitHubFiles(env: Env, tenantId: string, owner: string, repo: string, branch: string, expectedHeadSha: string, message: string, files: GitHubWriteFile[]): Promise<unknown> {
+  const token = await getToken(env, tenantId); const name = branchName(branch); const parentSha = objectSha(expectedHeadSha, 'commit'); const cleanMessage = message.trim();
+  if (!cleanMessage || cleanMessage.length > 2000) throw new Error('Invalid GitHub commit message');
+  if (!Array.isArray(files) || files.length === 0 || files.length > 1000) throw new Error('GitHub commit must contain 1-1000 file changes');
+  const unique = new Set<string>(); for (const file of files) { const path = filePath(file.path); if (unique.has(path)) throw new Error('GitHub commit contains duplicate file paths'); unique.add(path); if (file.delete === true && file.content !== undefined) throw new Error('A GitHub file change cannot contain both content and delete'); if (file.delete !== true && file.content === undefined) throw new Error('GitHub file content is required unless deleting'); if (file.content !== undefined && file.content.length > 8 * 1024 * 1024) throw new Error('GitHub file content is too large'); }
+  const ref = await githubRequest<GitHubRef>(env, token, repoPath(owner, repo, `/git/ref/heads/${encodeURIComponent(name).replace(/%2F/g, '/')}`));
+  if (ref.object.sha !== parentSha) throw new Error('GitHub branch moved since the expected head was read');
+  const parentCommit = await githubRequest<{ tree: { sha: string } }>(env, token, repoPath(owner, repo, `/git/commits/${parentSha}`));
+  const entries = await Promise.all(files.map(async file => {
+    const path = filePath(file.path);
+    if (file.delete) return { path, mode: '100644', type: 'blob', sha: null };
+    const encoding = file.encoding || 'utf-8';
+    const blob = await githubRequest<{ sha: string }>(env, token, repoPath(owner, repo, '/git/blobs'), { method: 'POST', body: JSON.stringify({ content: file.content, encoding }) });
+    return { path, mode: file.mode || '100644', type: 'blob', sha: blob.sha };
+  }));
+  const tree = await githubRequest<{ sha: string }>(env, token, repoPath(owner, repo, '/git/trees'), { method: 'POST', body: JSON.stringify({ base_tree: parentCommit.tree.sha, tree: entries }) });
+  const commit = await githubRequest<{ sha: string }>(env, token, repoPath(owner, repo, '/git/commits'), { method: 'POST', body: JSON.stringify({ message: cleanMessage, tree: tree.sha, parents: [parentSha] }) });
+  await githubRequest(env, token, repoPath(owner, repo, `/git/refs/heads/${encodeURIComponent(name).replace(/%2F/g, '/')}`), { method: 'PATCH', body: JSON.stringify({ sha: commit.sha, force: false }) });
+  return { sha: commit.sha, treeSha: tree.sha, previousHeadSha: parentSha };
+}
+
+export async function createGitHubPull(env: Env, tenantId: string, owner: string, repo: string, head: string, base: string, title: string, body?: string, draft = false): Promise<unknown> {
+  const token = await getToken(env, tenantId); const headRef = branchName(head); const baseRef = branchName(base); const cleanTitle = title.trim(); if (!cleanTitle || cleanTitle.length > 256) throw new Error('Invalid GitHub pull request title'); if ((body || '').length > 65536) throw new Error('GitHub pull request body is too large');
+  return githubRequest(env, token, repoPath(owner, repo, '/pulls'), { method: 'POST', body: JSON.stringify({ title: cleanTitle, body: body || '', head: headRef, base: baseRef, draft }) });
+}
+
+export async function mergeGitHubPull(env: Env, tenantId: string, owner: string, repo: string, number: number, expectedHeadSha: string, method: 'merge' | 'squash' | 'rebase' = 'squash'): Promise<unknown> {
+  const token = await getToken(env, tenantId); if (!Number.isInteger(number) || number < 1) throw new Error('Invalid pull request number'); const headSha = objectSha(expectedHeadSha, 'commit'); if (headSha.length !== 40 && headSha.length !== 64) throw new Error('GitHub merge requires a full commit SHA');
+  return githubRequest(env, token, repoPath(owner, repo, `/pulls/${number}/merge`), { method: 'PUT', body: JSON.stringify({ sha: headSha, merge_method: method }) });
+}

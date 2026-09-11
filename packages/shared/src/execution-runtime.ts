@@ -34,6 +34,7 @@ export interface RuntimeExecutionRequest {
   graphId: string;
   nodeId: string;
   attemptId: string;
+  executionOwner: string;
   executionVersion: number;
   leaseExpiresAt: string;
   capability: ExecutionRuntimeCapability;

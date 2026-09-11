@@ -41,12 +41,15 @@ export interface RuntimeExecutionRequest {
   workingDirectory?: string;
   command?: string;
   args?: readonly string[];
+  /** Signed monotonic fence supplied to the runtime target. */
+  fenceToken?: string;
 }
 
 export type RuntimeExecutionOutcome =
   | 'completed'
   | 'failed'
   | 'timed_out'
+  | 'possibly_succeeded'
   | 'unknown';
 
 export interface RuntimeExecutionResult {
@@ -64,4 +67,6 @@ export interface RuntimeExecutionResult {
   error?: string;
   /** Present when a recovery worker owns the runtime execution record. */
   recoveryVersion?: number;
+  /** Target acknowledgement that its local fence accepted the supplied generation. */
+  acceptedFenceVersion?: number;
 }

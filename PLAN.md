@@ -103,8 +103,9 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [x] Native repository clone primitive using direct argv execution rather than shell interpolation.
 - [x] One-time native approval token for high-risk local commands.
 - [x] Shared execution-runtime contract separating cloud sandbox, cloud automation and desktop local execution.
-- [ ] Persist/secure desktop runtime registration and heartbeat; memory-only workspace state is not sufficient for production.
-- [ ] Bind desktop runtime jobs to graph node/attempt IDs and execution fences.
+- [x] Durable server-side runtime registration, heartbeat, capability discovery and runtime-execution persistence API.
+- [ ] Have the desktop client register/heartbeat through the durable runtime API instead of memory-only local state.
+- [ ] Bind desktop runtime jobs to graph node/attempt IDs and execution fences end-to-end.
 - [ ] Durable reconnect/recovery when the desktop disappears during a local execution.
 - [ ] Route project/git work to desktop runtime only when the graph has an eligible local capability.
 - [ ] Add native UI for workspace registration and approval review; never hide dangerous execution behind a generic "run" button.
@@ -121,21 +122,6 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [ ] Keep analytics/economics as an operational surface, not the product's center of gravity.
 - [ ] Remove remaining production-looking placeholder identity/data from client surfaces.
 
-### Desktop
-- [x] Scaffold a native-capable desktop client around shared contracts/API.
-- [x] Share task/graph/workspace UI concepts without duplicating engine logic.
-- [x] Add first local filesystem/Git/runtime capability bridge behind workspace containment and approval checks.
-- [ ] Support Ollama as an ordinary provider endpoint.
-- [ ] Add deep project/IDE workflows that are intentionally desktop-only.
-
-### Mobile
-- [ ] Scaffold mobile client around shared contracts.
-- [ ] Define smaller mobile information architecture rather than cloning desktop.
-- [ ] Task creation and result review.
-- [ ] Graph/job monitoring, refresh/resume and execution status.
-- [ ] Approval/rejection, notifications and operational decisions.
-- [ ] Project status; no deep IDE/filesystem workflow by default.
-
 ## Verification
 - [ ] Web build/typecheck/test verification.
 - [ ] Desktop build/typecheck verification once shell is selected.
@@ -147,7 +133,7 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 1. Stabilize CI and close remaining engine gates that affect durable execution/security.
 2. Build the **web workbench first** against real APIs and remove legacy/placeholder product presentation.
 3. Extract shared client contracts/capabilities.
-4. Build the **desktop full-capability client** and connect it to the durable runtime protocol.
+4. Build the **desktop full-capability client**.
 5. Build the **mobile reduced-capability companion**.
 6. Exercise the system with real providers and Ollama.
 7. Complete deployment/readiness verification.
@@ -159,4 +145,4 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 A milestone is done only when integrated into the real architecture, preserves existing behavior, has appropriate tests, keeps real integrations intact, is verified as far as the environment permits, is committed clearly, and this plan is updated.
 
 ## Immediate next action
-**Finish the desktop runtime security boundary, then bind local runtime jobs to the durable graph/attempt/fence model; in parallel, close repository-operation reconciliation and the real GitHub PR-files read path.**
+**Bind the durable runtime API to the desktop client and graph executor, including runtime leases, attempt fencing, reconnect/recovery and capability-aware routing; then close repository-operation reconciliation and the real GitHub pull-request-files adapter.**

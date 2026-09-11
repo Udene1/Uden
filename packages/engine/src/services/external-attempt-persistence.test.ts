@@ -20,6 +20,7 @@ describe.sequential('external attempt persistence', () => {
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('attempt-tenant','Attempts','attempts@example.test','attempt-hash',100).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('attempt-root','attempt-tenant','external attempt test','processing').run();
     await db.prepare(`INSERT INTO task_graphs (id,tenant_id,root_task_id,goal,status,execution_version,execution_owner,lease_until,created_at,updated_at) VALUES (?,?,?,?,?, ?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`).bind('attempt-graph','attempt-tenant','attempt-root','external attempt','running',7,'worker-a',"9999-12-31 00:00:00").run();
+    await db.prepare(`INSERT INTO task_graph_nodes (id,graph_id,tenant_id,title,prompt,domain,complexity,expected_format,recommended_tier,dependencies_json,context_from_json,status,attempted_models_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind('node-1','attempt-graph','attempt-tenant','Attempt node','external attempt','general',1,'markdown',1,'[]','[]','running','["gpt-4o-mini"]').run();
     await db.prepare(`INSERT INTO task_graph_attempts (id,graph_id,node_id,tenant_id,attempt_number,model,provider,status) VALUES (?,?,?,?,?,?,?,?)`).bind('attempt-1','attempt-graph','node-1','attempt-tenant',1,'gpt-4o-mini','openai','running').run();
   });
   afterAll(async () => { await dispose?.(); });

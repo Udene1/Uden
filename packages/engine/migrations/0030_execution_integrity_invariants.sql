@@ -8,7 +8,7 @@ WHEN OLD.status <> NEW.status
    (OLD.status='ready' AND NEW.status IN ('running','blocked','awaiting-approval','awaiting-runtime')) OR
    (OLD.status='running' AND NEW.status IN ('completed','failed','blocked','awaiting-approval','awaiting-runtime','awaiting-reconciliation','ready','pending')) OR
    (OLD.status='awaiting-runtime' AND NEW.status IN ('running','completed','failed','blocked','awaiting-reconciliation')) OR
-   (OLD.status='awaiting-reconciliation' AND NEW.status IN ('running','completed','failed','blocked','awaiting-approval')) OR
+   (OLD.status='awaiting-reconciliation' AND NEW.status IN ('running','completed','failed','blocked','awaiting-approval','ready','pending')) OR
    (OLD.status='awaiting-approval' AND NEW.status IN ('ready','running','blocked','failed')) OR
    (OLD.status='failed' AND NEW.status IN ('running','failed','awaiting-approval','ready','pending')) OR
    (OLD.status='blocked' AND NEW.status IN ('running','blocked','pending')) OR

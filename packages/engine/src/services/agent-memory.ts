@@ -42,9 +42,15 @@ export async function remember(env: HonoEnv['Bindings'], tenantId: string, input
   assertScopeIdentity(input);
   const confidence = Math.max(0, Math.min(1, input.confidence));
   const id = crypto.randomUUID();
+  const conflictTarget = {
+    tenant: 'ON CONFLICT(tenant_id,scope,key) WHERE scope=\'tenant\'',
+    project: 'ON CONFLICT(tenant_id,project_id,scope,key) WHERE scope=\'project\'',
+    graph: 'ON CONFLICT(tenant_id,graph_id,scope,key) WHERE scope=\'graph\'',
+    node: 'ON CONFLICT(tenant_id,graph_id,node_id,scope,key) WHERE scope=\'node\'',
+  }[input.scope];
   await env.DB.prepare(`INSERT INTO agent_memories (id,tenant_id,project_id,graph_id,node_id,kind,scope,key,content,source_type,source_id,confidence,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    ON CONFLICT(tenant_id,scope,project_id,graph_id,node_id,key) DO UPDATE SET id=excluded.id,kind=excluded.kind,content=excluded.content,source_type=excluded.source_type,source_id=excluded.source_id,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP`)
+    ${conflictTarget} DO UPDATE SET id=excluded.id,kind=excluded.kind,content=excluded.content,source_type=excluded.source_type,source_id=excluded.source_id,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP`)
     .bind(id,tenantId,input.projectId ?? null,input.graphId ?? null,input.nodeId ?? null,input.kind,input.scope,input.key.trim(),input.content,input.sourceType,input.sourceId ?? null,confidence).run();
   const row = await env.DB.prepare(`SELECT * FROM agent_memories
     WHERE tenant_id=? AND scope=? AND key=?

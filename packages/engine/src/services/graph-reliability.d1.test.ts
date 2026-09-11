@@ -99,6 +99,9 @@ describe.sequential('graph reliability D1 integration', () => {
     recovered!.nodes[0].error = undefined;
     recovered!.nodes[0].output = 'worker B result';
     await persistGraphSnapshot(db, 'reliability-tenant', recovered!, 'running', null, null, { owner: 'worker-b', fenceVersion: 21 });
+    recovered!.nodes[0].status = 'running';
+    await persistGraphSnapshot(db, 'reliability-tenant', recovered!, 'running', null, null, { owner: 'worker-b', fenceVersion: 21 });
+    recovered!.nodes[0].status = 'completed';
     await persistGraphSnapshot(db, 'reliability-tenant', recovered!, 'completed', null, null, { owner: 'worker-b', fenceVersion: 21 });
     const staleRevival: TaskGraph = { ...failedByA, nodes: [{ ...failedByA.nodes[0], status: 'completed', output: 'late worker A result' }] };
     await expect(persistGraphSnapshot(db, 'reliability-tenant', staleRevival, 'completed', null, null, { owner: 'worker-a', fenceVersion: 20 })).rejects.toThrow('Graph execution lease lost');

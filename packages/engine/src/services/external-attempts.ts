@@ -1,4 +1,4 @@
-export type ExternalAttemptOutcome = 'not_started' | 'in_flight' | 'completed' | 'failed' | 'unknown';
+export type ExternalAttemptOutcome = 'not_started' | 'in_flight' | 'completed' | 'failed' | 'possibly_succeeded' | 'unknown';
 
 export type ExternalAttemptIdentity = {
   id: string;
@@ -29,5 +29,5 @@ export function isRetrySafe(outcome: ExternalAttemptOutcome): boolean {
 }
 
 export function requiresReconciliation(outcome: ExternalAttemptOutcome): boolean {
-  return outcome === 'in_flight' || outcome === 'unknown';
+  return outcome === 'in_flight' || outcome === 'possibly_succeeded' || outcome === 'unknown';
 }

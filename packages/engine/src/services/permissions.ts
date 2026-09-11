@@ -1,12 +1,12 @@
 import { logEvent } from './observability';
 
 export type TenantRole = 'owner' | 'admin' | 'member' | 'viewer';
-export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate' | 'project:read' | 'project:write' | 'project:execute' | 'github:read';
+export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate' | 'project:read' | 'project:write' | 'project:execute' | 'github:read' | 'origin:read';
 
 const ROLE_PERMISSIONS: Record<TenantRole, Permission[]> = {
-  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read'],
-  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read'],
-  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate','project:read','project:write','project:execute','github:read'],
+  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read','origin:read'],
+  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read','origin:read'],
+  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate','project:read','project:write','project:execute','github:read','origin:read'],
   viewer: ['graph:read','project:read'],
 };
 
@@ -20,8 +20,6 @@ export async function hasPermission(db: D1Database, tenantId: string, permission
 export async function hasPrincipalPermission(db: D1Database, tenantId: string, permission: Permission, principal: string): Promise<boolean> {
   if (!principal?.trim()) return false;
   if (await hasPermission(db, tenantId, permission, principal)) return true;
-  // API-key authentication has historically used the tenant-level membership subject.
-  // Do not apply this fallback to other principal types: those must have their own membership.
   return principal.startsWith('api-key:') && await hasPermission(db, tenantId, permission, 'tenant-api-key');
 }
 

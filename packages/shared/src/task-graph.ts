@@ -22,6 +22,11 @@ export interface TaskGraphPlan {
 }
 export interface NodeRoutingContext { qualityPreference: QualityPreference; budgetLeftCents: number; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; latencyPreference?: 'low' | 'balanced' | 'unbounded'; }
 export interface NodeRoutingDecision { nodeId: string; primaryModel: string; fallbackChain: string[]; estimatedCostCents: number; reasoning: string; }
-export interface TaskNodeRuntimeIntent { capability?: ExecutionRuntimeCapability; preferredKind?: ExecutionRuntimeKind; command?: string; args?: readonly string[]; workingDirectory?: string; }
-export function getTaskNodeRuntimeIntent(node: TaskNode): TaskNodeRuntimeIntent { const input=node.toolInput??{}; return { capability:node.runtimeCapability, preferredKind:node.preferredRuntimeKind, command:typeof input.command==='string'?input.command:undefined, args:Array.isArray(input.args)&&input.args.every(value=>typeof value==='string')?input.args as string[]:undefined, workingDirectory:typeof input.workingDirectory==='string'?input.workingDirectory:undefined }; }
-export function requiresRuntime(node: TaskNode): boolean { return Boolean(node.runtimeCapability); }
+export interface TaskNodeRuntimeIntent { capability?: ExecutionRuntimeCapability; preferredKind?: ExecutionRuntimeKind; command?: string; args?: readonly string[]; workingDirectory?: string; approved?: boolean; }
+export function getTaskNodeRuntimeIntent(node: TaskNode): TaskNodeRuntimeIntent {
+  const input=node.toolInput??{};
+  const capability = node.runtimeCapability ?? (typeof input.runtimeCapability === 'string' ? input.runtimeCapability as ExecutionRuntimeCapability : undefined);
+  const preferredKind = node.preferredRuntimeKind ?? (typeof input.preferredRuntimeKind === 'string' ? input.preferredRuntimeKind as ExecutionRuntimeKind : undefined);
+  return { capability, preferredKind, command:typeof input.command==='string'?input.command:undefined, args:Array.isArray(input.args)&&input.args.every(value=>typeof value==='string')?input.args as string[]:undefined, workingDirectory:typeof input.workingDirectory==='string'?input.workingDirectory:undefined, approved:node.approvalState==='approved'||input.approved===true };
+}
+export function requiresRuntime(node: TaskNode): boolean { return Boolean(getTaskNodeRuntimeIntent(node).capability); }

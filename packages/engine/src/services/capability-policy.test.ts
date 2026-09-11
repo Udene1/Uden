@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskNode } from '@ai-work-partner/shared';
-import { deriveCapabilityPolicy, assertCapabilityPolicy } from './capability-policy';
+import { deriveCapabilityPolicy, assertCapabilityPolicy, assertRuntimeCapabilityPolicy } from './capability-policy';
 
 const node = (overrides: Partial<TaskNode> = {}): TaskNode => ({
   id: 'n', title: 'execute', prompt: 'run', domain: 'coding', complexity: 5, expectedFormat: 'text', recommendedTier: 2,
@@ -19,5 +19,12 @@ describe('capability policy', () => {
   });
   it('rejects runtime capability on model-only nodes', () => {
     expect(() => assertCapabilityPolicy(node({ kind: 'model', runtimeCapability: 'command.exec' }))).toThrow('requires a project-tool node');
+  });
+  it('blocks high-risk transport without approval', () => {
+    expect(() => assertRuntimeCapabilityPolicy('filesystem.write')).toThrow('requires explicit approval');
+    expect(assertRuntimeCapabilityPolicy('filesystem.write', undefined, true).approvalRequired).toBe(true);
+  });
+  it('blocks interactive cloud execution', () => {
+    expect(() => assertRuntimeCapabilityPolicy('interactive.process', 'cloud_automation')).toThrow('cannot target cloud_automation');
   });
 });

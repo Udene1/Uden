@@ -10,7 +10,7 @@ export type DurableProviderAttempt = {
   result: ProviderExecutionResult;
 };
 
-/** Executes one externally billable attempt. It intentionally never retries. */
+/** Executes one durable externally billable attempt without creating duplicate external identities during recovery. */
 export async function executeDurableProviderAttempt(
   db: D1Database,
   tenantId: string,
@@ -24,8 +24,9 @@ export async function executeDurableProviderAttempt(
   fence: ExecutionFence,
   options?: Omit<ProviderExecutionOptions, 'idempotencyKey'>,
 ): Promise<DurableProviderAttempt> {
-  const identity = createExternalAttemptIdentity({ graphId, nodeId, tenantId, attemptNumber });
+  const generatedIdentity = createExternalAttemptIdentity({ graphId, nodeId, tenantId, attemptNumber });
   const existing = await getExternalAttemptOutcome(db, tenantId, durableAttemptId);
+  let idempotencyKey = generatedIdentity.idempotencyKey;
 
   if (existing && requiresReconciliation(existing.outcome)) {
     if (!provider.supportsIdempotencyKey) {
@@ -37,7 +38,19 @@ export async function executeDurableProviderAttempt(
         `External attempt '${durableAttemptId}' requires reconciliation before retry; provider '${modelId}' does not declare idempotent replay support`,
       );
     }
-    if (existing.idempotencyKey && existing.idempotencyKey !== identity.idempotencyKey) {
+    if (!existing.idempotencyKey) {
+      throw new ProviderExecutionError(
+        modelId,
+        'PROVIDER_ATTEMPT_IDENTITY_MISSING',
+        false,
+        'unknown',
+        `External attempt '${durableAttemptId}' is unresolved but has no persisted idempotency identity`,
+      );
+    }
+    // The persisted key is authoritative across worker crashes/reclaims.
+    idempotencyKey = existing.idempotencyKey;
+  } else if (existing?.idempotencyKey) {
+    if (existing.idempotencyKey !== generatedIdentity.idempotencyKey) {
       throw new ProviderExecutionError(
         modelId,
         'PROVIDER_ATTEMPT_IDENTITY_MISMATCH',
@@ -46,17 +59,15 @@ export async function executeDurableProviderAttempt(
         `External attempt '${durableAttemptId}' has an unexpected idempotency identity`,
       );
     }
+    idempotencyKey = existing.idempotencyKey;
   }
 
-  await markExternalAttemptInFlight(db, tenantId, durableAttemptId, identity.idempotencyKey, fence);
+  await markExternalAttemptInFlight(db, tenantId, durableAttemptId, idempotencyKey, fence);
 
   try {
-    const result = await provider.execute(prompt, modelId, {
-      ...options,
-      idempotencyKey: identity.idempotencyKey,
-    });
+    const result = await provider.execute(prompt, modelId, { ...options, idempotencyKey });
     await markExternalAttemptOutcome(db, tenantId, durableAttemptId, 'completed', fence);
-    return { attemptId: durableAttemptId, idempotencyKey: identity.idempotencyKey, result };
+    return { attemptId: durableAttemptId, idempotencyKey, result };
   } catch (error) {
     const safe = sanitizeProviderError(modelId, error);
     await markExternalAttemptOutcome(

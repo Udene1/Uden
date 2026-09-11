@@ -7,11 +7,15 @@ export async function markExternalAttemptInFlight(
   attemptId: string,
   idempotencyKey: string,
   fence: ExecutionFence,
+  memoryContext?: string,
+  memoryContextHash?: string,
 ): Promise<void> {
   const row = await db.prepare(`
     UPDATE task_graph_attempts
     SET external_outcome='in_flight',
         idempotency_key=?,
+        memory_context=COALESCE(memory_context, ?),
+        memory_context_hash=COALESCE(memory_context_hash, ?),
         outcome_checked_at=CURRENT_TIMESTAMP,
         external_error=NULL
     WHERE id=?
@@ -30,7 +34,7 @@ export async function markExternalAttemptInFlight(
           AND lease_until>=CURRENT_TIMESTAMP
       )
     RETURNING id
-  `).bind(idempotencyKey, attemptId, tenantId, idempotencyKey, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
+  `).bind(memoryContext ? idempotencyKey : idempotencyKey, memoryContext ?? null, memoryContextHash ?? null, attemptId, tenantId, idempotencyKey, tenantId, fence.owner, fence.fenceVersion).first<{ id: string }>();
 
   if (!row) throw new Error('Graph execution lease lost or external attempt transition rejected');
 }
@@ -72,18 +76,20 @@ export async function getExternalAttemptOutcome(
   db: D1Database,
   tenantId: string,
   attemptId: string,
-): Promise<{ outcome: ExternalAttemptOutcome; idempotencyKey: string | null; externalError: string | null } | null> {
+): Promise<{ outcome: ExternalAttemptOutcome; idempotencyKey: string | null; externalError: string | null; memoryContext: string | null; memoryContextHash: string | null } | null> {
   const row = await db.prepare(`
-    SELECT external_outcome, idempotency_key, external_error
+    SELECT external_outcome, idempotency_key, external_error, memory_context, memory_context_hash
     FROM task_graph_attempts
     WHERE id=? AND tenant_id=?
-  `).bind(attemptId, tenantId).first<{ external_outcome: ExternalAttemptOutcome; idempotency_key: string | null; external_error: string | null }>();
+  `).bind(attemptId, tenantId).first<{ external_outcome: ExternalAttemptOutcome; idempotency_key: string | null; external_error: string | null; memory_context: string | null; memory_context_hash: string | null }>();
 
   if (!row) return null;
   return {
     outcome: row.external_outcome,
     idempotencyKey: row.idempotency_key,
     externalError: row.external_error,
+    memoryContext: row.memory_context,
+    memoryContextHash: row.memory_context_hash,
   };
 }
 

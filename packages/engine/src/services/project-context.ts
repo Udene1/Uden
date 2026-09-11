@@ -26,13 +26,11 @@ export async function executeProjectTool(env: Env, tenantId: string, projectId: 
     case 'tree': return projectTree(env, tenantId, projectId); case 'read': return readProjectFile(env, tenantId, projectId, tool.input.path); case 'search': return searchProjectFiles(env, tenantId, projectId, tool.input.query); case 'diff': return previewProjectDiff(env, tenantId, projectId, tool.input.path, tool.input.content, tool.input.expectedVersion); case 'patch': return applyProjectPatch(env, tenantId, projectId, tool.input.files, requireFenceIdentity(fence!));
     case 'execute': {
       const identity = requireFenceIdentity(fence!);
-      if (tool.input.runtimeCapability) {
-        assertRuntimeCapabilityPolicy(tool.input.runtimeCapability, tool.input.preferredRuntimeKind, tool.input.approved === true);
-        const attemptId = `${identity.graphId}:runtime:${crypto.randomUUID()}`;
-        const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: attemptId, attemptId, capability: tool.input.runtimeCapability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
-        return { jobId: `runtime:${attemptId}`, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
-      }
-      return runProjectCommand(env, tenantId, projectId, tool.input.command, await listProjectFiles(env, tenantId, projectId), identity);
+      const capability = tool.input.runtimeCapability ?? 'command.exec';
+      assertRuntimeCapabilityPolicy(capability, tool.input.preferredRuntimeKind, tool.input.approved === true);
+      const attemptId = `${identity.graphId}:runtime:${crypto.randomUUID()}`;
+      const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: attemptId, attemptId, capability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
+      return { jobId: `runtime:${attemptId}`, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
     }
     case 'github-raw': return fetchGitHubRawFile(env, tool.input, tool.input.path, requireFenceIdentity(fence!)); case 'github-blob': return fetchGitHubBlob(env, tool.input, tool.input.sha, requireFenceIdentity(fence!)); case 'github-tree': return fetchGitHubTree(env, tool.input, requireFenceIdentity(fence!)); default: throw new Error('Unsupported project tool');
   }

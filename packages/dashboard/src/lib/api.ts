@@ -1,15 +1,19 @@
 export type TaskStatus = 'pending' | 'classifying' | 'routing' | 'processing' | 'quality-check' | 'escalating' | 'completed' | 'failed' | 'awaiting-approval' | 'approved' | 'rejected';
 export type TaskMode = 'permissionless' | 'permission-based';
-export interface Tenant { id:string; name:string; apiKey?:string; settings:{monthlyBudgetCents:number; defaultMode:TaskMode}; }
+export type QualityPreference = 'cost-optimized' | 'balanced' | 'quality-first';
+export interface Tenant { id:string; name:string; email?:string; qualityPreference:QualityPreference; monthlyBudgetCents:number; defaultMode:TaskMode; bringOwnKeys:boolean; createdAt?:string; updatedAt?:string; }
 export interface Task { id:string; prompt:string; status:TaskStatus; mode:TaskMode; projectId?:string; output?:string; totalCostCents:number; modelUsed?:string; qualityScore?:number; createdAt:string; completedAt?:string; }
 export interface UsageSummary { totalCostCents:number; totalTokensIn:number; totalTokensOut:number; totalTasks:number; completedTasks:number; failedTasks:number; escalationCount:number; escalationRate:number; averageQualityScore:number; costByModel:Record<string,number>; costByProvider:Record<string,number>; savingsEstimateCents:number; budgetUsedPercent:number; }
 export interface GraphAnalytics { totals:Record<string,number>; escalation:Record<string,number>; byDomain:Array<Record<string,any>>; byModel:Array<Record<string,any>>; recentGraphs:Array<Record<string,any>>; }
 export interface AnalyticsResponse { analytics:GraphAnalytics; savings:{actualCostCents:number;primaryAttemptCostCents:number;escalationCostCents:number;routingSavingsCents:number}; }
+export interface UpdateTenant { name?:string; qualityPreference?:QualityPreference; monthlyBudgetCents?:number; defaultMode?:TaskMode; bringOwnKeys?:boolean; }
 class ApiClient {
  private base=process.env.NEXT_PUBLIC_ENGINE_URL||'/api/v1';
  private async fetcher<T>(endpoint:string,options:RequestInit={},apiKey?:string):Promise<T>{const headers:Record<string,string>={'Content-Type':'application/json'};if(apiKey)headers.Authorization=`Bearer ${apiKey}`;const response=await fetch(`${this.base}${endpoint}`,{...options,headers:{...headers,...(options.headers as Record<string,string>|undefined)}});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`API Error: ${response.status}`);}return response.json();}
  async registerTenant(name:string):Promise<{apiKey:string}>{return this.fetcher('/tenants',{method:'POST',body:JSON.stringify({name})});}
- async getCurrentTenant(apiKey:string):Promise<Tenant>{return this.fetcher('/tenant',{},apiKey);}
+ async getCurrentTenant(apiKey:string):Promise<{tenant:Tenant}>{return this.fetcher('/tenant',{},apiKey);}
+ async updateTenant(updates:UpdateTenant,apiKey:string):Promise<{success:boolean}>{return this.fetcher('/tenant',{method:'PUT',body:JSON.stringify(updates)},apiKey);}
+ async rotateApiKey(apiKey:string):Promise<{api_key:string}>{return this.fetcher('/tenant/rotate-key',{method:'POST'},apiKey);}
  async getUsageSummary(apiKey?:string):Promise<UsageSummary>{return this.fetcher('/usage/summary',{},apiKey);}
  async getDailyUsage(apiKey?:string){return this.fetcher<{daily:Array<{date:string;cost_cents:number;task_count:number;tokens_in:number;tokens_out:number}>}>('/usage/daily',{},apiKey);}
  async getAnalytics(apiKey?:string):Promise<AnalyticsResponse>{return this.fetcher('/usage/analytics',{},apiKey);}

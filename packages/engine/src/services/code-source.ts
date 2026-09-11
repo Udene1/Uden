@@ -34,8 +34,12 @@ export interface CodeSource {
   mergePullRequest(env: Env, tenantId: string, ref: CodeRepositoryRef, number: number, precondition: CodeMutationPrecondition): Promise<unknown>;
 }
 
-function githubRef(ref: CodeRepositoryRef) { return `${ref.owner}/${ref.repo}`; }
-function originRef(ref: CodeRepositoryRef) { return { namespace: ref.owner, repository: ref.repo }; }
+function assertProviderRef(provider: CodeSourceProvider, ref: CodeRepositoryRef): void {
+  if (ref.provider !== provider) throw new Error(`Code repository provider mismatch: expected ${provider}, received ${ref.provider}`);
+  if (!ref.owner.trim() || !ref.repo.trim()) throw new Error('Code repository owner and name are required');
+}
+function githubRef(ref: CodeRepositoryRef) { assertProviderRef('github', ref); return `${ref.owner}/${ref.repo}`; }
+function originRef(ref: CodeRepositoryRef) { assertProviderRef('origin', ref); return { namespace: ref.owner, repository: ref.repo }; }
 
 export function getCodeSource(provider: CodeSourceProvider): CodeSource {
   if (provider === 'github') return {
@@ -53,9 +57,12 @@ export function getCodeSource(provider: CodeSourceProvider): CodeSource {
     listCommits: (env, tenantId, ref, branch) => listGitHubCommits(env, tenantId, githubRef(ref), branch),
     listPullRequests: (env, tenantId, ref) => listGitHubPulls(env, tenantId, githubRef(ref)),
     getPullRequest: (env, tenantId, ref, number) => getGitHubPull(env, tenantId, githubRef(ref), number),
-    getPullRequestFiles: async (env, tenantId, ref, number) => (await getGitHubPull(env, tenantId, githubRef(ref), number) as any).files ?? [],
+    getPullRequestFiles: async (env, tenantId, ref, number) => {
+      const pull = await getGitHubPull(env, tenantId, githubRef(ref), number) as { files?: unknown };
+      return pull.files ?? [];
+    },
     createBranch: (env, tenantId, ref, branch, fromSha) => createGitHubBranch(env, tenantId, githubRef(ref), branch, fromSha),
-    commitFiles: (env, tenantId, ref, branch, changes, precondition, message) => commitGitHubFiles(env, tenantId, githubRef(ref), branch, changes as GitHubWriteFile[], precondition.expectedHeadSha, message),
+    commitFiles: (env, tenantId, ref, branch, changes, precondition, message) => commitGitHubFiles(env, tenantId, githubRef(ref), branch, precondition.expectedHeadSha, message, changes as GitHubWriteFile[]),
     createPullRequest: (env, tenantId, ref, head, base, title, body) => createGitHubPull(env, tenantId, githubRef(ref), head, base, title, body),
     mergePullRequest: (env, tenantId, ref, number, precondition) => mergeGitHubPull(env, tenantId, githubRef(ref), number, precondition.expectedHeadSha),
   };

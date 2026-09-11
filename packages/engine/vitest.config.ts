@@ -11,5 +11,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    // D1/Miniflare schema bootstrap is process-shared; run test files serially
+    // so concurrent schema application cannot race at the SQLite proxy boundary.
+    fileParallelism: false,
   },
 });

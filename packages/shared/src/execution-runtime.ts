@@ -62,4 +62,6 @@ export interface RuntimeExecutionResult {
   finishedAt: string;
   externalOperationId?: string;
   error?: string;
+  /** Present when a recovery worker owns the runtime execution record. */
+  recoveryVersion?: number;
 }

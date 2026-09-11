@@ -12,17 +12,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.apiKey) return null;
         try {
-          // For MVP, just checking if we can fetch the current tenant with this key
-          const tenant = await api.getCurrentTenant(credentials.apiKey as string);
-          if (tenant) {
-            return {
-              id: tenant.id,
-              name: tenant.name,
-              apiKey: credentials.apiKey
-            };
-          }
-          return null;
-        } catch (error) {
+          const result = await api.getCurrentTenant(credentials.apiKey as string);
+          const tenant = result.tenant;
+          if (!tenant) return null;
+          return {
+            id: tenant.id,
+            name: tenant.name,
+            apiKey: credentials.apiKey,
+          };
+        } catch {
           return null;
         }
       },

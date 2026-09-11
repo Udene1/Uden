@@ -29,12 +29,13 @@ export async function listEligibleExecutionRuntimes(db:D1Database,tenantId:strin
 }
 
 async function assertRuntimeFence(db:D1Database,tenantId:string,request:RuntimeExecutionRequest):Promise<void>{
+  if(!request.executionOwner)throw new Error('Runtime execution owner is required');
   const row=await db.prepare(`SELECT 1 AS valid FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP`).bind(request.graphId,tenantId,request.executionOwner,request.executionVersion).first();
   if(!row)throw new Error('Graph execution lease lost');
 }
 
 export async function authorizeRuntimeExecution(db:D1Database,tenantId:string,request:RuntimeExecutionRequest):Promise<RuntimeExecutionResult>{
-  if(!request.executionOwner||!request.executionVersion)throw new Error('Runtime execution fence is required');
+  if(!request.executionOwner||request.executionVersion<1)throw new Error('Runtime execution fence is required');
   await assertRuntimeFence(db,tenantId,request);
   const runtime=await db.prepare(`SELECT id FROM execution_runtimes WHERE tenant_id=? AND id=? AND state='online' AND last_heartbeat_at>=datetime('now','-${RUNTIME_HEARTBEAT_TIMEOUT_SECONDS} seconds') AND EXISTS (SELECT 1 FROM json_each(execution_runtimes.capabilities_json) WHERE value=?)`).bind(tenantId,request.runtimeId,request.capability).first<{id:string}>();
   if(!runtime)throw new Error('Execution runtime is unavailable or lacks the requested capability');

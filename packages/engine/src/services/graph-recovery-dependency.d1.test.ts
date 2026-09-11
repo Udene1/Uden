@@ -33,7 +33,7 @@ describe.sequential('dependency-aware graph recovery D1 integration', () => {
     const node = recovered?.nodes.find((candidate) => candidate.id === 'dependent') as TaskGraph['nodes'][number] & { resumeAttemptNumber?: number; resumeAttemptId?: string };
     expect(node.dependencies).toEqual(['upstream']);
     expect(node.contextFrom).toEqual(['upstream']);
-    expect(node.status).toBe('pending');
+    expect(node.status).toBe('awaiting-reconciliation');
     expect(node.attemptedModels).toEqual([]);
     expect(node.resumeAttemptNumber).toBe(1);
     expect(node.resumeAttemptId).toBe('dependency-recovery-graph:dependent:1');

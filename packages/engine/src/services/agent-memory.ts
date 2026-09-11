@@ -50,11 +50,11 @@ export async function remember(env: HonoEnv['Bindings'], tenantId: string, input
   return mapMemory(row);
 }
 
-export async function recall(env: HonoEnv['Bindings'], tenantId: string, options: { projectId?: string; graphId?: string; nodeId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
+export async function recall(db: D1Database, tenantId: string, options: { projectId?: string; graphId?: string; nodeId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
   const limit = Math.min(MAX_RESULTS, Math.max(1, options.limit ?? 10));
   const scope = options.scope;
   const query = options.query?.trim();
-  const rows = await env.DB.prepare(`SELECT * FROM agent_memories
+  const rows = await db.prepare(`SELECT * FROM agent_memories
     WHERE tenant_id=?
       AND (? IS NULL OR scope=?)
       AND (? IS NULL OR project_id=? OR scope='tenant')

@@ -44,9 +44,7 @@ WHEN NEW.status IN ('completed','failed','blocked')
  AND EXISTS (SELECT 1 FROM repository_operations WHERE graph_id=NEW.id AND tenant_id=NEW.tenant_id AND external_outcome IN ('in_flight','unknown'))
 BEGIN SELECT RAISE(ABORT, 'Graph cannot become terminal with unresolved repository side effects'); END;
 
-DROP TRIGGER IF EXISTS task_graph_terminal_runtime_guard;
-CREATE TRIGGER task_graph_terminal_runtime_guard
-BEFORE UPDATE OF status ON task_graphs
-WHEN NEW.status IN ('completed','failed','blocked')
- AND EXISTS (SELECT 1 FROM runtime_executions WHERE graph_id=NEW.id AND tenant_id=NEW.tenant_id AND status IN ('in_flight','possibly_succeeded','unknown'))
-BEGIN SELECT RAISE(ABORT, 'Graph cannot become terminal with unresolved runtime side effects'); END;
+-- The runtime terminal guard intentionally lives in migration 0032, after
+-- runtime_executions has its final schema from migration 0031. Keeping this
+-- dependency explicit prevents fresh databases from carrying a trigger that
+-- references a table whose schema has not been established yet.

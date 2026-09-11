@@ -2,7 +2,7 @@ import type { ProviderExecutionOptions, ProviderExecutionResult, AIProvider } fr
 import { getExternalAttemptOutcome, markExternalAttemptInFlight, markExternalAttemptOutcome } from './external-attempt-persistence';
 import { createExternalAttemptIdentity, requiresReconciliation } from './external-attempts';
 import type { ExecutionFence } from './execution-side-effects';
-import { isAmbiguousProviderError, sanitizeProviderError } from './provider-errors';
+import { isAmbiguousProviderError, ProviderExecutionError, sanitizeProviderError } from './provider-errors';
 
 export type DurableProviderAttempt = {
   attemptId: string;
@@ -29,10 +29,22 @@ export async function executeDurableProviderAttempt(
 
   if (existing && requiresReconciliation(existing.outcome)) {
     if (!provider.supportsIdempotencyKey) {
-      throw new Error(`External attempt '${durableAttemptId}' requires reconciliation before retry; provider '${modelId}' does not declare idempotent replay support`);
+      throw new ProviderExecutionError(
+        modelId,
+        'PROVIDER_RECONCILIATION_REQUIRED',
+        false,
+        'unknown',
+        `External attempt '${durableAttemptId}' requires reconciliation before retry; provider '${modelId}' does not declare idempotent replay support`,
+      );
     }
     if (existing.idempotencyKey && existing.idempotencyKey !== identity.idempotencyKey) {
-      throw new Error(`External attempt '${durableAttemptId}' has an unexpected idempotency identity`);
+      throw new ProviderExecutionError(
+        modelId,
+        'PROVIDER_ATTEMPT_IDENTITY_MISMATCH',
+        false,
+        'unknown',
+        `External attempt '${durableAttemptId}' has an unexpected idempotency identity`,
+      );
     }
   }
 

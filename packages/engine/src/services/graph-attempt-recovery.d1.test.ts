@@ -18,6 +18,7 @@ describe.sequential('durable graph attempt recovery D1 integration', () => {
     await applyCurrentD1Schema(db, engineRoot);
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('attempt-recovery-tenant','Attempt Recovery','attempt-recovery@example.test','attempt-recovery-hash',10000).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('attempt-recovery-root','attempt-recovery-tenant','attempt recovery test','processing').run();
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('attempt-history-root','attempt-recovery-tenant','attempt history test','processing').run();
   });
 
   afterAll(async () => { await dispose?.(); });
@@ -40,7 +41,7 @@ describe.sequential('durable graph attempt recovery D1 integration', () => {
   });
 
   it('preserves completed history while reusing only the unresolved latest attempt', async () => {
-    const graph: TaskGraph = { id: 'attempt-history-graph', rootTaskId: 'attempt-recovery-root', goal: 'preserve attempt history', createdAt: new Date().toISOString(), nodes: [{ id: 'node', title: 'History node', prompt: 'work', domain: 'general', complexity: 2, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'running', attemptedModels: ['gpt-4o-mini', 'gpt-4o'] }] };
+    const graph: TaskGraph = { id: 'attempt-history-graph', rootTaskId: 'attempt-history-root', goal: 'preserve attempt history', createdAt: new Date().toISOString(), nodes: [{ id: 'node', title: 'History node', prompt: 'work', domain: 'general', complexity: 2, expectedFormat: 'markdown', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'running', attemptedModels: ['gpt-4o-mini', 'gpt-4o'] }] };
     await persistGraph(db, 'attempt-recovery-tenant', graph);
     for (const attempt of [['attempt-history-graph:node:1',1,'gpt-4o-mini','completed','completed'],['attempt-history-graph:node:2',2,'gpt-4o','running','unknown']]) {
       await db.prepare(`INSERT INTO task_graph_attempts (id,graph_id,node_id,tenant_id,attempt_number,model,provider,status,external_outcome) VALUES (?,?,?,?,?,?,?,?,?)`).bind(attempt[0],'attempt-history-graph','node','attempt-recovery-tenant',attempt[1],attempt[2],'openai',attempt[3],attempt[4]).run();

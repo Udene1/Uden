@@ -6,7 +6,7 @@ export interface LocalCommandRequest {
   program: string;
   args?: string[];
   timeoutMs?: number;
-  approved?: boolean;
+  approvalToken?: string;
 }
 
 export interface CloneRepositoryRequest {
@@ -31,8 +31,25 @@ export async function registerWorkspace(path: string): Promise<string> {
   return invoke<string>('register_workspace', { path });
 }
 
+export async function unregisterWorkspace(path: string): Promise<boolean> {
+  return invoke<boolean>('unregister_workspace', { path });
+}
+
 export async function listWorkspaces(): Promise<string[]> {
   return invoke<string[]>('list_workspaces');
+}
+
+export async function approveLocalCommand(request: LocalCommandRequest): Promise<string> {
+  return invoke<string>('approve_workspace_command', {
+    request: {
+      workspace_root: request.workspaceRoot,
+      cwd: request.cwd,
+      program: request.program,
+      args: request.args ?? [],
+      timeout_ms: request.timeoutMs ?? 120_000,
+      approval_token: null,
+    },
+  });
 }
 
 export async function runLocalCommand(request: LocalCommandRequest): Promise<LocalCommandResult> {
@@ -43,7 +60,7 @@ export async function runLocalCommand(request: LocalCommandRequest): Promise<Loc
       program: request.program,
       args: request.args ?? [],
       timeout_ms: request.timeoutMs ?? 120_000,
-      approved: request.approved ?? false,
+      approval_token: request.approvalToken ?? null,
     },
   });
 }

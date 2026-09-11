@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::{Path, PathBuf}, process::{Command, Stdio}, sync::Mutex, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet}, hash::{Hash, Hasher}, path::{Path, PathBuf}, process::{Command, Stdio}, sync::Mutex, time::{Duration, Instant}};
+use uuid::Uuid;
 
 #[derive(Default)]
-struct WorkspaceState { roots: Mutex<HashSet<PathBuf>> }
+struct WorkspaceState {
+    roots: Mutex<HashSet<PathBuf>>,
+    approvals: Mutex<HashMap<String, u64>>,
+}
 
 #[derive(Debug, Deserialize)]
 struct CommandRequest {
@@ -11,18 +15,7 @@ struct CommandRequest {
     program: String,
     #[serde(default)] args: Vec<String>,
     #[serde(default = "default_timeout")] timeout_ms: u64,
-    #[serde(default)] approved: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct CloneRequest {
-    workspace_root: String,
-    cwd: String,
-    url: String,
-    destination: String,
-    branch: Option<String>,
-    #[serde(default)] depth: Option<u32>,
-    #[serde(default = "default_timeout")] timeout_ms: u64,
+    approval_token: Option<String>,
 }
 
 fn default_timeout() -> u64 { 120_000 }
@@ -42,6 +35,15 @@ fn requires_approval(program: &str, args: &[String]) -> bool {
     let joined = args.join(" ").to_ascii_lowercase();
     matches!(name.as_str(), "bash" | "sh" | "zsh" | "fish" | "powershell" | "pwsh" | "cmd" | "cmd.exe" | "sudo" | "su" | "rm" | "rmdir" | "del" | "format" | "diskpart" | "chmod" | "chown" | "kill" | "pkill" | "shutdown" | "reboot")
         || joined.contains("git push --force") || joined.contains("git push -f") || joined.contains("git reset --hard") || joined.contains("rm -rf")
+}
+
+fn command_fingerprint(request: &CommandRequest, cwd: &Path) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    request.workspace_root.hash(&mut hasher);
+    cwd.hash(&mut hasher);
+    request.program.hash(&mut hasher);
+    request.args.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn validate_workspace(state: &tauri::State<'_, WorkspaceState>, root_text: &str, cwd_text: &str) -> Result<(PathBuf, PathBuf), String> {
@@ -77,9 +79,26 @@ fn register_workspace(path: String, state: tauri::State<'_, WorkspaceState>) -> 
 }
 
 #[tauri::command]
+fn unregister_workspace(path: String, state: tauri::State<'_, WorkspaceState>) -> Result<bool, String> {
+    let root = canonical_existing(&path)?;
+    Ok(state.roots.lock().map_err(|_| "workspace state lock poisoned".to_string())?.remove(&root))
+}
+
+#[tauri::command]
 fn list_workspaces(state: tauri::State<'_, WorkspaceState>) -> Result<Vec<String>, String> {
     let roots = state.roots.lock().map_err(|_| "workspace state lock poisoned".to_string())?;
     Ok(roots.iter().map(|p| p.to_string_lossy().into_owned()).collect())
+}
+
+#[tauri::command]
+fn approve_workspace_command(request: CommandRequest, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+    if request.program.trim().is_empty() { return Err("program is required".into()); }
+    let (_root, cwd) = validate_workspace(&state, &request.workspace_root, &request.cwd)?;
+    if !requires_approval(&request.program, &request.args) { return Err("command does not require approval".into()); }
+    let token = Uuid::new_v4().to_string();
+    let fingerprint = command_fingerprint(&request, &cwd);
+    state.approvals.lock().map_err(|_| "approval state lock poisoned".to_string())?.insert(token.clone(), fingerprint);
+    Ok(token)
 }
 
 #[tauri::command]
@@ -87,7 +106,12 @@ fn workspace_command(request: CommandRequest, state: tauri::State<'_, WorkspaceS
     if request.program.trim().is_empty() { return Err("program is required".into()); }
     if request.timeout_ms == 0 || request.timeout_ms > 15 * 60 * 1000 { return Err("timeout_ms must be between 1ms and 15 minutes".into()); }
     let (_root, cwd) = validate_workspace(&state, &request.workspace_root, &request.cwd)?;
-    if requires_approval(&request.program, &request.args) && !request.approved { return Err("command requires explicit local approval".into()); }
+    if requires_approval(&request.program, &request.args) {
+        let token = request.approval_token.as_deref().ok_or_else(|| "command requires explicit local approval".to_string())?;
+        let fingerprint = command_fingerprint(&request, &cwd);
+        let mut approvals = state.approvals.lock().map_err(|_| "approval state lock poisoned".to_string())?;
+        if approvals.remove(token) != Some(fingerprint) { return Err("approval token does not match this exact command".into()); }
+    }
     let child = Command::new(&request.program).args(&request.args).current_dir(&cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("failed to start {}: {}", request.program, e))?;
     collect_output(child, request.timeout_ms)
 }
@@ -98,6 +122,8 @@ fn clone_repository(request: CloneRequest, state: tauri::State<'_, WorkspaceStat
     if request.destination.trim().is_empty() { return Err("destination is required".into()); }
     if request.timeout_ms == 0 || request.timeout_ms > 30 * 60 * 1000 { return Err("timeout_ms must be between 1ms and 30 minutes".into()); }
     let (root, cwd) = validate_workspace(&state, &request.workspace_root, &request.cwd)?;
+    if request.url.chars().any(|c| c.is_control()) { return Err("repository URL contains control characters".into()); }
+    if request.branch.as_deref().is_some_and(|v| v.starts_with('-')) { return Err("branch may not start with '-'".into()); }
     let target = cwd.join(&request.destination);
     let parent = target.parent().ok_or_else(|| "invalid clone destination".to_string())?;
     let parent = std::fs::canonicalize(parent).map_err(|e| format!("cannot resolve clone destination parent: {}", e))?;
@@ -111,6 +137,17 @@ fn clone_repository(request: CloneRequest, state: tauri::State<'_, WorkspaceStat
     collect_output(child, request.timeout_ms)
 }
 
+#[derive(Debug, Deserialize)]
+struct CloneRequest {
+    workspace_root: String,
+    cwd: String,
+    url: String,
+    destination: String,
+    branch: Option<String>,
+    #[serde(default)] depth: Option<u32>,
+    #[serde(default = "default_timeout")] timeout_ms: u64,
+}
+
 fn main() {
-    tauri::Builder::default().manage(WorkspaceState::default()).invoke_handler(tauri::generate_handler![register_workspace, list_workspaces, workspace_command, clone_repository]).run(tauri::generate_context!()).expect("error while running Uden desktop");
+    tauri::Builder::default().manage(WorkspaceState::default()).invoke_handler(tauri::generate_handler![register_workspace, unregister_workspace, list_workspaces, approve_workspace_command, workspace_command, clone_repository]).run(tauri::generate_context!()).expect("error while running Uden desktop");
 }

@@ -12,11 +12,10 @@ export interface RuntimeClientConfig {
 
 export interface RuntimeRegistration {
   id: string;
-  tenantId: string;
   kind: 'desktop_local';
   state: 'online' | 'draining' | 'offline';
   capabilities: readonly ExecutionRuntimeCapability[];
-  lastHeartbeatAt: string;
+  lastHeartbeatAt?: string;
   metadata?: Record<string, string>;
 }
 
@@ -64,7 +63,7 @@ export class DurableRuntimeClient {
   async register(registration: RuntimeRegistration): Promise<ExecutionRuntimeDescriptor> {
     return this.request<ExecutionRuntimeDescriptor>('/api/v1/runtimes/register', {
       method: 'POST',
-      body: JSON.stringify({ ...registration, kind: 'desktop_local' }),
+      body: JSON.stringify({ ...registration, kind: 'desktop_local', lastHeartbeatAt: registration.lastHeartbeatAt ?? new Date().toISOString() }),
     });
   }
 

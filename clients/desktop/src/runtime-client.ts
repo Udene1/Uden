@@ -102,4 +102,11 @@ export class DurableRuntimeClient {
   async recoverable(): Promise<RuntimeExecutionResult[]> {
     return this.request<RuntimeExecutionResult[]>('/api/v1/runtimes/recoverable');
   }
+
+  async claimRecovery(attemptId: string, leaseSeconds = 60): Promise<RuntimeExecutionResult> {
+    return this.request<RuntimeExecutionResult>(`/api/v1/runtimes/recoverable/${encodeURIComponent(attemptId)}/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ leaseSeconds }),
+    });
+  }
 }

@@ -3,16 +3,16 @@ import { getPersistedGraph, persistGraphSnapshot } from './graph-persistence';
 import { resumeTaskGraph } from './graph-executor';
 
 async function recordApprovalRequest(db:D1Database, tenantId:string, graphId:string, nodeId:string, requestedBy:string, reason:string):Promise<string>{
-  const existing=await db.prepare(`SELECT id FROM graph_approval_requests WHERE tenant_id=? AND graph_id=? AND node_id=? AND status='pending'`).bind(tenantId,graphId,nodeId).first<{id:string}>();
-  if(existing?.id)return existing.id;
   const id=crypto.randomUUID();
-  await db.prepare(`INSERT INTO graph_approval_requests (id,tenant_id,graph_id,node_id,status,reason,requested_by) VALUES (?,?,?,?,?,?,?)`).bind(id,tenantId,graphId,nodeId,'pending',reason,requestedBy).run();
-  return id;
+  await db.prepare(`INSERT INTO graph_approval_requests (id,tenant_id,graph_id,node_id,status,reason,requested_by) VALUES (?,?,?,?,?,?,?) ON CONFLICT(graph_id,node_id) WHERE status='pending' DO NOTHING`).bind(id,tenantId,graphId,nodeId,'pending',reason,requestedBy).run();
+  const existing=await db.prepare(`SELECT id FROM graph_approval_requests WHERE tenant_id=? AND graph_id=? AND node_id=? AND status='pending'`).bind(tenantId,graphId,nodeId).first<{id:string}>();
+  if(!existing?.id)throw new Error('Unable to persist graph approval request');
+  return existing.id;
 }
 
 async function decideApproval(db:D1Database, tenantId:string, graphId:string, nodeId:string, status:'approved'|'rejected', decidedBy:string, reason?:string):Promise<void>{
-  const result=await db.prepare(`UPDATE graph_approval_requests SET status=?,decided_by=?,decision_reason=?,decided_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND graph_id=? AND node_id=? AND status='pending'`).bind(status,decidedBy,reason||null,tenantId,graphId,nodeId).run();
-  if(!result.meta?.changes)throw new Error('Graph approval request is no longer pending');
+  const row=await db.prepare(`UPDATE graph_approval_requests SET status=?,decided_by=?,decision_reason=?,decided_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND graph_id=? AND node_id=? AND status='pending' RETURNING id`).bind(status,decidedBy,reason||null,tenantId,graphId,nodeId).first<{id:string}>();
+  if(!row?.id)throw new Error('Graph approval request is no longer pending');
 }
 
 export async function listGraphApprovals(db:D1Database,tenantId:string,graphId:string){const result=await db.prepare(`SELECT * FROM graph_approval_requests WHERE tenant_id=? AND graph_id=? ORDER BY requested_at DESC`).bind(tenantId,graphId).all();return result.results||[];}

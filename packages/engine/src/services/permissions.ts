@@ -1,12 +1,12 @@
 import { logEvent } from './observability';
 
 export type TenantRole = 'owner' | 'admin' | 'member' | 'viewer';
-export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate' | 'project:read' | 'project:write' | 'project:execute' | 'github:read' | 'origin:read';
+export type Permission = 'graph:execute' | 'graph:resume' | 'graph:read' | 'settings:write' | 'audit:read' | 'workspace:read' | 'workspace:send' | 'code:generate' | 'project:read' | 'project:write' | 'project:execute' | 'github:read' | 'github:write' | 'origin:read' | 'origin:write';
 
 const ROLE_PERMISSIONS: Record<TenantRole, Permission[]> = {
-  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read','origin:read'],
-  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read','origin:read'],
-  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate','project:read','project:write','project:execute','github:read','origin:read'],
+  owner: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read','github:write','origin:read','origin:write'],
+  admin: ['graph:execute','graph:resume','graph:read','settings:write','audit:read','workspace:read','workspace:send','code:generate','project:read','project:write','project:execute','github:read','github:write','origin:read','origin:write'],
+  member: ['graph:execute','graph:resume','graph:read','workspace:read','code:generate','project:read','project:write','project:execute','github:read','github:write','origin:read','origin:write'],
   viewer: ['graph:read','project:read'],
 };
 

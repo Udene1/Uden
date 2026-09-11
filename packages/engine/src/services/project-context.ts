@@ -26,8 +26,9 @@ export async function executeProjectTool(env: Env, tenantId: string, projectId: 
     case 'execute': {
       const identity = requireFenceIdentity(fence!);
       if (tool.input.runtimeCapability) {
-        const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: identity.graphId + ':runtime', attemptId: `${identity.graphId}:runtime:${crypto.randomUUID()}`, capability: tool.input.runtimeCapability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
-        return { jobId: result.externalOperationId || result.attemptId, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
+        const attemptId = `${identity.graphId}:runtime:${crypto.randomUUID()}`;
+        const result = await dispatchRuntimeExecution(env, tenantId, { graphId: identity.graphId, nodeId: attemptId, attemptId, capability: tool.input.runtimeCapability, executionOwner: identity.owner, executionVersion: identity.fenceVersion, leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), command: tool.input.command, args: tool.input.args, workingDirectory: tool.input.workingDirectory, preferredKind: tool.input.preferredRuntimeKind });
+        return { jobId: `runtime:${attemptId}`, status: result.outcome === 'completed' ? 'succeeded' : result.outcome === 'failed' ? 'failed' : 'running', output: result.stdout || result.stderr || result.error } satisfies RuntimeResult;
       }
       return runProjectCommand(env, tenantId, projectId, tool.input.command, await listProjectFiles(env, tenantId, projectId), identity);
     }

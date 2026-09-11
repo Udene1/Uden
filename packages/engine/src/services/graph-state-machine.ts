@@ -1,0 +1,41 @@
+import type { TaskNodeStatus } from '@ai-work-partner/shared';
+
+export type GraphStatus = 'running' | 'completed' | 'failed' | 'blocked' | 'awaiting-approval' | 'awaiting-runtime';
+
+const nodeTransitions:Record<TaskNodeStatus,readonly TaskNodeStatus[]>={
+  pending:['ready','blocked','awaiting-approval'],
+  ready:['running','blocked','awaiting-approval','awaiting-runtime'],
+  running:['completed','failed','blocked','awaiting-approval','awaiting-runtime','awaiting-reconciliation'],
+  completed:['completed'],
+  failed:['running','failed','awaiting-approval'],
+  blocked:['running','blocked'],
+  'awaiting-approval':['running','blocked','failed'],
+  'awaiting-runtime':['running','completed','failed','blocked','awaiting-reconciliation'],
+  'awaiting-reconciliation':['running','completed','failed','blocked','awaiting-approval'],
+};
+
+const graphTransitions:Record<GraphStatus,readonly GraphStatus[]>={
+  running:['completed','failed','blocked','awaiting-approval','awaiting-runtime'],
+  completed:['completed'],
+  failed:['running','failed'],
+  blocked:['running','blocked'],
+  'awaiting-approval':['running','completed','failed','blocked'],
+  'awaiting-runtime':['running','completed','failed','blocked','awaiting-approval'],
+};
+
+export function assertNodeTransition(from:TaskNodeStatus,to:TaskNodeStatus):void{
+  if(from===to)return;
+  if(!nodeTransitions[from]?.includes(to))throw new Error(`Illegal task graph node status transition: ${from} -> ${to}`);
+}
+
+export function assertGraphTransition(from:GraphStatus,to:GraphStatus):void{
+  if(from===to)return;
+  if(!graphTransitions[from]?.includes(to))throw new Error(`Illegal task graph status transition: ${from} -> ${to}`);
+}
+
+export function assertGraphHasNoUnresolvedExternalEffects(input:{targetStatus:GraphStatus;unresolvedRuntimeCount:number;unresolvedRepositoryCount:number}):void{
+  if(!['completed','failed','blocked'].includes(input.targetStatus))return;
+  if(input.unresolvedRuntimeCount>0||input.unresolvedRepositoryCount>0){
+    throw new Error('Graph cannot become terminal while external side effects require reconciliation');
+  }
+}

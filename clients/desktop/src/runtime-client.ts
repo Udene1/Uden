@@ -12,9 +12,11 @@ export interface RuntimeClientConfig {
 
 export interface RuntimeRegistration {
   id: string;
+  tenantId: string;
   kind: 'desktop_local';
   state: 'online' | 'draining' | 'offline';
   capabilities: readonly ExecutionRuntimeCapability[];
+  lastHeartbeatAt: string;
   metadata?: Record<string, string>;
 }
 
@@ -23,7 +25,8 @@ export interface RuntimeExecutionCompletion {
   exitCode?: number;
   stdout?: string;
   stderr?: string;
-  finishedAt?: string;
+  startedAt: string;
+  finishedAt: string;
   externalOperationId?: string;
   error?: string;
 }
@@ -66,16 +69,14 @@ export class DurableRuntimeClient {
   }
 
   async heartbeat(runtimeId: string, state: RuntimeRegistration['state'] = 'online'): Promise<ExecutionRuntimeDescriptor> {
-    return this.request<ExecutionRuntimeDescriptor>(`/api/v1/runtimes/${encodeURIComponent(runtimeId)}/heartbeat`, {
+    return this.request<ExecutionRuntimeDescriptor>(`/api/v1/runtimes/${encodeURIComponent(runtimeId)}/heartbeat?state=${encodeURIComponent(state)}`, {
       method: 'POST',
-      body: JSON.stringify({ state }),
+      body: '{}',
     });
   }
 
   async eligible(capability: ExecutionRuntimeCapability): Promise<ExecutionRuntimeDescriptor[]> {
-    const query = encodeURIComponent(capability);
-    const result = await this.request<{ runtimes: ExecutionRuntimeDescriptor[] }>(`/api/v1/runtimes/?capability=${query}`);
-    return result.runtimes ?? [];
+    return this.request<ExecutionRuntimeDescriptor[]>(`/api/v1/runtimes/?capability=${encodeURIComponent(capability)}`);
   }
 
   async authorize(request: RuntimeExecutionRequest): Promise<RuntimeExecutionResult> {
@@ -95,12 +96,11 @@ export class DurableRuntimeClient {
   async complete(request: RuntimeExecutionRequest, result: RuntimeExecutionCompletion): Promise<RuntimeExecutionResult> {
     return this.request<RuntimeExecutionResult>('/api/v1/runtimes/executions/complete', {
       method: 'POST',
-      body: JSON.stringify({ ...request, result: { ...result, runtimeId: request.runtimeId, graphId: request.graphId, nodeId: request.nodeId, attemptId: request.attemptId, startedAt: new Date().toISOString() } }),
+      body: JSON.stringify({ request, result: { ...result, runtimeId: request.runtimeId, graphId: request.graphId, nodeId: request.nodeId, attemptId: request.attemptId } }),
     });
   }
 
   async recoverable(): Promise<RuntimeExecutionResult[]> {
-    const result = await this.request<{ executions: RuntimeExecutionResult[] }>('/api/v1/runtimes/executions/recoverable');
-    return result.executions ?? [];
+    return this.request<RuntimeExecutionResult[]>('/api/v1/runtimes/recoverable');
   }
 }

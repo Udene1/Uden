@@ -30,13 +30,13 @@ Workers/Hono, D1/KV, authentication, classifier, model registry/pricing, cost-aw
 Next.js App Router. Work-first experience with task composer, graph workspace, live execution timeline, approvals, projects/files, verification, provider/usage visibility, analytics and settings.
 
 ### Desktop
-Native-capable shell using the same API/domain contracts. Local capabilities are explicit and must cross the same execution-security boundaries; no duplicated engine semantics.
+Native-capable shell using the same API/domain contracts. Local capabilities are explicit and must cross the same execution-security boundaries; no duplicated engine semantics. The native bridge now has registered workspace roots, bounded direct process execution, safe repository cloning, and one-time native approval tokens for high-risk commands.
 
 ### Mobile
 Companion client using shared contracts. It exposes the high-value operational subset rather than cloning desktop.
 
 ### Shared
-Shared TypeScript contracts for tasks, models, pricing, task graphs, execution events and client capabilities.
+Shared TypeScript contracts for tasks, models, pricing, task graphs, execution events and client capabilities. Execution runtime contracts distinguish cloud sandbox, scheduled cloud automation, and local desktop execution.
 
 ## Completed
 ### Engine foundation
@@ -95,6 +95,19 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [ ] Add first real provider E2E using supplied credentials; never fake provider responses.
 - [ ] Deliberately review/remediate dependency security findings; do not blindly run `npm audit fix`.
 - [ ] Complete final deployment/binding/secret verification in the actual environment.
+- [ ] Integrate repository-operation reconciliation into the graph mutation path.
+- [ ] Add the real GitHub pull-request-files endpoint and normalize repository results across GitHub and Origin.
+
+## Desktop runtime gates
+- [x] Native direct command bridge with bounded execution and workspace containment.
+- [x] Native repository clone primitive using direct argv execution rather than shell interpolation.
+- [x] One-time native approval token for high-risk local commands.
+- [x] Shared execution-runtime contract separating cloud sandbox, cloud automation and desktop local execution.
+- [ ] Persist/secure desktop runtime registration and heartbeat; memory-only workspace state is not sufficient for production.
+- [ ] Bind desktop runtime jobs to graph node/attempt IDs and execution fences.
+- [ ] Durable reconnect/recovery when the desktop disappears during a local execution.
+- [ ] Route project/git work to desktop runtime only when the graph has an eligible local capability.
+- [ ] Add native UI for workspace registration and approval review; never hide dangerous execution behind a generic "run" button.
 
 ## Product UI — ACTIVE NOW
 ### Web control center
@@ -109,9 +122,9 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 - [ ] Remove remaining production-looking placeholder identity/data from client surfaces.
 
 ### Desktop
-- [ ] Scaffold a native-capable desktop client around shared contracts/API.
-- [ ] Share task/graph/workspace UI concepts without duplicating engine logic.
-- [ ] Add local filesystem/Git/runtime capabilities only behind explicit capability checks and execution fences.
+- [x] Scaffold a native-capable desktop client around shared contracts/API.
+- [x] Share task/graph/workspace UI concepts without duplicating engine logic.
+- [x] Add first local filesystem/Git/runtime capability bridge behind workspace containment and approval checks.
 - [ ] Support Ollama as an ordinary provider endpoint.
 - [ ] Add deep project/IDE workflows that are intentionally desktop-only.
 
@@ -134,7 +147,7 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 1. Stabilize CI and close remaining engine gates that affect durable execution/security.
 2. Build the **web workbench first** against real APIs and remove legacy/placeholder product presentation.
 3. Extract shared client contracts/capabilities.
-4. Build the **desktop full-capability client**.
+4. Build the **desktop full-capability client** and connect it to the durable runtime protocol.
 5. Build the **mobile reduced-capability companion**.
 6. Exercise the system with real providers and Ollama.
 7. Complete deployment/readiness verification.
@@ -146,4 +159,4 @@ Shared TypeScript contracts for tasks, models, pricing, task graphs, execution e
 A milestone is done only when integrated into the real architecture, preserves existing behavior, has appropriate tests, keeps real integrations intact, is verified as far as the environment permits, is committed clearly, and this plan is updated.
 
 ## Immediate next action
-**Build the first real Uden web workbench surface, while closing the remaining engine gates in parallel; then scaffold desktop and mobile from shared contracts rather than cloning the web UI.**
+**Finish the desktop runtime security boundary, then bind local runtime jobs to the durable graph/attempt/fence model; in parallel, close repository-operation reconciliation and the real GitHub PR-files read path.**

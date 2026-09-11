@@ -1,25 +1,28 @@
 import type { Env } from '../types';
 import {
-  listGitHubRepositories, getGitHubRepository, getGitHubTree, getGitHubTreeBySha,
-  getGitHubBlob, getGitHubCommit, getGitHubGitCommit, listGitHubCommits,
-  listGitHubPulls, getGitHubPull, createGitHubBranch, commitGitHubFiles,
-  createGitHubPull, mergeGitHubPull, type GitHubWriteFile,
+  listGitHubRepositories, getGitHubTree, getGitHubTreeBySha, getGitHubBlob,
+  getGitHubCommit, getGitHubGitCommit, listGitHubCommits, listGitHubPulls,
+  getGitHubPull, createGitHubBranch, commitGitHubFiles, createGitHubPull,
+  mergeGitHubPull, type GitHubWriteFile,
 } from './github-connector';
 import {
-  listOriginRepositories, getOriginRepository, listOriginCommits, getOriginCommit,
-  getOriginBlob, getOriginGitCommit, getOriginTree, listOriginPulls, getOriginPull,
-  getOriginPullFiles, compareOriginCommits, createOriginBranch, commitOriginFiles,
-  createOriginPull, mergeOriginPull, type OriginWriteFile,
+  listOriginRepositories, listOriginCommits, getOriginCommit, getOriginBlob,
+  getOriginGitCommit, getOriginTree, listOriginPulls, getOriginPull,
+  getOriginPullFiles, createOriginBranch, commitOriginFiles, createOriginPull,
+  mergeOriginPull, type OriginWriteFile,
 } from './origin-connector';
 
 export type CodeSourceProvider = 'github' | 'origin';
 export interface CodeRepositoryRef { provider: CodeSourceProvider; owner: string; repo: string; }
 
-/** Provider-neutral operations deliberately limited to operations implemented by both sources. */
+/**
+ * Provider-neutral boundary for repository work. Only operations with real
+ * implementations on both providers belong here; provider-specific features
+ * remain below this boundary instead of being faked as common capabilities.
+ */
 export interface CodeSource {
   readonly provider: CodeSourceProvider;
   listRepositories(): Promise<unknown>;
-  getRepository(ref: CodeRepositoryRef): Promise<unknown>;
   listCommits(ref: CodeRepositoryRef, sha?: string): Promise<unknown>;
   getCommit(ref: CodeRepositoryRef, sha: string): Promise<unknown>;
   getGitCommit(ref: CodeRepositoryRef, sha: string): Promise<unknown>;
@@ -55,7 +58,6 @@ class GitHubCodeSource implements CodeSource {
   readonly provider = 'github' as const;
   constructor(private readonly env: Env, private readonly tenantId: string) {}
   listRepositories() { return listGitHubRepositories(this.env, this.tenantId); }
-  getRepository(ref: CodeRepositoryRef) { requireProvider(ref, this.provider); return getGitHubRepository(this.env, this.tenantId, ref.owner, ref.repo); }
   listCommits(ref: CodeRepositoryRef, sha?: string) { requireProvider(ref, this.provider); return listGitHubCommits(this.env, this.tenantId, ref.owner, ref.repo, sha); }
   getCommit(ref: CodeRepositoryRef, sha: string) { requireProvider(ref, this.provider); return getGitHubCommit(this.env, this.tenantId, ref.owner, ref.repo, sha); }
   getGitCommit(ref: CodeRepositoryRef, sha: string) { requireProvider(ref, this.provider); return getGitHubGitCommit(this.env, this.tenantId, ref.owner, ref.repo, sha); }
@@ -74,7 +76,6 @@ class OriginCodeSource implements CodeSource {
   readonly provider = 'origin' as const;
   constructor(private readonly env: Env, private readonly tenantId: string) {}
   listRepositories() { return listOriginRepositories(this.env, this.tenantId); }
-  getRepository(ref: CodeRepositoryRef) { requireProvider(ref, this.provider); return getOriginRepository(this.env, this.tenantId, ref.owner, ref.repo); }
   listCommits(ref: CodeRepositoryRef, sha?: string) { requireProvider(ref, this.provider); return listOriginCommits(this.env, this.tenantId, ref.owner, ref.repo, sha); }
   getCommit(ref: CodeRepositoryRef, sha: string) { requireProvider(ref, this.provider); return getOriginCommit(this.env, this.tenantId, ref.owner, ref.repo, sha); }
   getGitCommit(ref: CodeRepositoryRef, sha: string) { requireProvider(ref, this.provider); return getOriginGitCommit(this.env, this.tenantId, ref.owner, ref.repo, sha); }

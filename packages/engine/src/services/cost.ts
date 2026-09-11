@@ -20,27 +20,29 @@ export async function checkBudget(env: HonoEnv['Bindings'], tenantId: string): P
 /** Atomically reserves estimated spend and treats an existing live reservation for the same attempt as idempotent. */
 export async function reserveBudget(env: HonoEnv['Bindings'], tenantId: string, amountCents: number, referenceId: string, fence?: ExecutionFence): Promise<boolean> {
   const amount = Math.max(1, Math.ceil(amountCents));
+  const graphValues = fence ? [fence.graphId, fence.owner, fence.fenceVersion] : [null, null, null];
   const fenceClause = fence
     ? `AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until>=CURRENT_TIMESTAMP)`
     : '';
-  const bindings: unknown[] = [crypto.randomUUID(), tenantId, referenceId, amount, amount, tenantId, tenantId, tenantId];
+  const bindings: unknown[] = [
+    crypto.randomUUID(), tenantId, referenceId, amount,
+    graphValues[0], graphValues[1], graphValues[2],
+    amount, tenantId, tenantId, tenantId,
+  ];
   if (fence) bindings.push(fence.graphId, tenantId, fence.owner, fence.fenceVersion);
   await env.DB.prepare(`
     INSERT INTO budget_reservations (id, tenant_id, reference_id, amount_cents, status, graph_id, execution_owner, execution_version)
-    SELECT ?, ?, ?, ?, 'reserved', ${fence ? '?' : 'NULL'}, ${fence ? '?' : 'NULL'}, ${fence ? '?' : 'NULL'}
+    SELECT ?, ?, ?, ?, 'reserved', ?, ?, ?
     WHERE ? <= (
       COALESCE((SELECT monthly_budget_cents FROM tenants WHERE id=?),10000)
       - COALESCE((SELECT SUM(cost_cents) FROM usage_records WHERE tenant_id=? AND created_at >= datetime('now','start of month')),0)
       - COALESCE((SELECT SUM(amount_cents) FROM budget_reservations WHERE tenant_id=? AND status='reserved' AND created_at >= datetime('now','start of month')),0)
     ) ${fenceClause}
     ON CONFLICT(tenant_id, reference_id) DO NOTHING
-  `).bind(...(fence ? [bindings[0], bindings[1], bindings[2], bindings[3], fence.graphId, fence.owner, fence.fenceVersion, bindings[4], bindings[5], bindings[6], bindings[7], ...bindings.slice(8)] : [bindings[0], bindings[1], bindings[2], bindings[3], bindings[4], bindings[5], bindings[6], bindings[7]])).run();
+  `).bind(...bindings).run();
 
-  const row = await env.DB.prepare('SELECT status FROM budget_reservations WHERE tenant_id=? AND reference_id=?').bind(tenantId, referenceId).first<{ status: string }>();
-  if (fence && row?.status === 'reserved') {
-    const owner = await env.DB.prepare('SELECT graph_id,execution_owner,execution_version FROM budget_reservations WHERE tenant_id=? AND reference_id=?').bind(tenantId, referenceId).first<{ graph_id:string|null; execution_owner:string|null; execution_version:number|null }>();
-    if (owner?.graph_id !== fence.graphId || owner.execution_owner !== fence.owner || owner.execution_version !== fence.fenceVersion) return false;
-  }
+  const row = await env.DB.prepare('SELECT status,graph_id,execution_owner,execution_version FROM budget_reservations WHERE tenant_id=? AND reference_id=?').bind(tenantId, referenceId).first<{ status: string; graph_id:string|null; execution_owner:string|null; execution_version:number|null }>();
+  if (fence && row?.status === 'reserved' && (row.graph_id !== fence.graphId || row.execution_owner !== fence.owner || row.execution_version !== fence.fenceVersion)) return false;
   return row?.status === 'reserved';
 }
 

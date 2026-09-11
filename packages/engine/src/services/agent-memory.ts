@@ -22,6 +22,7 @@ export interface AgentMemory {
 
 const MAX_CONTENT = 20_000;
 const MAX_RESULTS = 20;
+const MAX_CONTEXT_CHARS = 24_000;
 
 function validScope(scope: AgentMemoryScope): boolean {
   return ['tenant', 'project', 'graph', 'node'].includes(scope);
@@ -83,7 +84,15 @@ export async function recall(env: HonoEnv['Bindings'], tenantId: string, options
 
 export function formatMemoryContext(memories: AgentMemory[]): string {
   if (memories.length === 0) return '';
-  return ['## Durable memory', ...memories.map(memory => `- [${memory.kind}/${memory.scope}] ${memory.key}: ${memory.content}`)].join('\n');
+  const lines: string[] = ['## Durable memory'];
+  let length = lines[0].length;
+  for (const memory of memories) {
+    const line = `- [${memory.kind}/${memory.scope}] ${memory.key}: ${memory.content}`;
+    if (length + line.length + 1 > MAX_CONTEXT_CHARS) break;
+    lines.push(line);
+    length += line.length + 1;
+  }
+  return lines.join('\n');
 }
 
 function mapMemory(row: any): AgentMemory {

@@ -8,7 +8,7 @@ const migrations = [
   '0011_runtime_job_linkage.sql','0012_autonomous_objectives.sql','0012_graph_node_tool_persistence.sql','0013_graph_verification_repair.sql',
   '0014_graph_repair_proposals.sql','0015_autonomous_workflow_linkage.sql','0015_execution_side_effect_fencing.sql','0016_autonomous_objective_projects.sql',
   '0016_execution_principal.sql','0017_durable_graph_approvals.sql','0018_durable_attempt_outcomes.sql','0019_attempt_cost_estimates.sql',
-  '0020_origin_connector.sql','0021_repository_operations.sql','0022_execution_runtimes.sql',
+  '0020_origin_connector.sql','0021_repository_operations.sql','0022_execution_runtimes.sql','0023_runtime_execution_fencing.sql',
 ] as const;
 
 function isAddColumn(statement: string): { table: string; column: string } | undefined {

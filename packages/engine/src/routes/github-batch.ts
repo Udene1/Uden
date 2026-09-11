@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { HonoEnv } from '../types';
 import { requirePermission } from '../services/permissions';
 import { sanitizeError } from '../services/observability';
@@ -6,7 +7,7 @@ import { readGitHubObjectsBatch, type GitHubBatchObject } from '../services/gith
 
 export const githubBatchRoutes = new Hono<HonoEnv>();
 
-function repoParams(c: HonoEnv['Bindings'] extends never ? never : any): { owner: string; repo: string } {
+function repoParams(c: Context<HonoEnv>): { owner: string; repo: string } {
   return { owner: c.req.param('owner'), repo: c.req.param('repo') };
 }
 

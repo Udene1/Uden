@@ -3,6 +3,7 @@ import type { ExecutionRuntimeCapability, ExecutionRuntimeKind, RuntimeExecution
 import { authorizeRuntimeExecution, completeRuntimeExecution, markRuntimeExecutionInFlight } from './execution-runtimes';
 import { selectExecutionRuntime } from './runtime-routing';
 import type { ExecutionFence } from './execution-side-effects';
+import { createRuntimeFenceToken, runtimeFenceClaims, RUNTIME_FENCE_PROTOCOL } from './runtime-fence';
 
 const MAX_OUTPUT = 100_000;
 const MAX_COMMAND = 2_000;
@@ -31,6 +32,7 @@ interface RuntimeTransportResponse {
   error?: string;
   startedAt?: string;
   finishedAt?: string;
+  acceptedFenceVersion?: number;
 }
 
 function runtimeEndpoint(metadata: Record<string, string> | undefined): string {
@@ -42,18 +44,10 @@ function runtimeEndpoint(metadata: Record<string, string> | undefined): string {
   return url.toString().replace(/\/$/, '');
 }
 
-async function hmac(payload: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)));
-  let binary = '';
-  for (const byte of digest) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 function sanitizeResult(value: RuntimeTransportResponse): RuntimeExecutionResult['outcome'] {
-  if (value.outcome === 'completed' || value.outcome === 'failed' || value.outcome === 'timed_out' || value.outcome === 'unknown') return value.outcome;
+  if (value.outcome === 'completed' || value.outcome === 'failed' || value.outcome === 'timed_out' || value.outcome === 'possibly_succeeded' || value.outcome === 'unknown') return value.outcome;
   if (value.exitCode !== undefined) return value.exitCode === 0 ? 'completed' : 'failed';
-  return 'unknown';
+  return 'possibly_succeeded';
 }
 
 export async function dispatchRuntimeExecution(
@@ -89,12 +83,13 @@ export async function dispatchRuntimeExecution(
   if (!secret) {
     await completeRuntimeExecution(env.DB, tenantId, transportRequest, {
       runtimeId: runtime.id, graphId: request.graphId, nodeId: request.nodeId, attemptId: request.attemptId,
-      outcome: 'unknown', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+      outcome: 'possibly_succeeded', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
       error: 'Execution runtime transport secret is not configured',
     });
     throw new Error('Execution runtime transport is not configured');
   }
 
+  const fenceToken = await createRuntimeFenceToken(runtimeFenceClaims(transportRequest, tenantId), secret);
   const body = JSON.stringify({
     tenantId,
     runtimeId: runtime.id,
@@ -108,22 +103,29 @@ export async function dispatchRuntimeExecution(
     command,
     args: request.args ?? [],
     workingDirectory: request.workingDirectory,
+    fenceProtocol: RUNTIME_FENCE_PROTOCOL,
+    fenceToken,
   });
   const timestamp = String(Date.now());
-  const signature = await hmac(`${timestamp}.${body}`, secret);
+  // The signed fence token is included in the transport body signature too,
+  // so the target cannot accept a token detached from the operation payload.
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${body}`)));
+  let binary = ''; for (const byte of digest) binary += String.fromCharCode(byte);
+  const signature = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
   let response: Response;
   try {
     response = await fetch(`${endpoint}/v1/executions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-uden-timestamp': timestamp, 'x-uden-signature': signature },
+      headers: { 'content-type': 'application/json', 'x-uden-timestamp': timestamp, 'x-uden-signature': signature, 'x-uden-fence-version': String(request.executionVersion), 'x-uden-fence-owner': request.executionOwner, 'x-uden-fence-protocol': RUNTIME_FENCE_PROTOCOL },
       body,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Runtime transport request failed';
     return completeRuntimeExecution(env.DB, tenantId, transportRequest, {
       runtimeId: runtime.id, graphId: request.graphId, nodeId: request.nodeId, attemptId: request.attemptId,
-      outcome: 'unknown', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: message.slice(0, 4000),
+      outcome: 'possibly_succeeded', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: message.slice(0, 4000),
     });
   }
 
@@ -132,7 +134,7 @@ export async function dispatchRuntimeExecution(
   const now = new Date().toISOString();
   const result: RuntimeExecutionResult = {
     runtimeId: runtime.id, graphId: request.graphId, nodeId: request.nodeId, attemptId: request.attemptId,
-    outcome: response.ok ? sanitizeResult(payload) : 'unknown',
+    outcome: response.ok ? sanitizeResult(payload) : 'possibly_succeeded',
     exitCode: payload.exitCode,
     stdout: payload.stdout?.slice(0, MAX_OUTPUT),
     stderr: payload.stderr?.slice(0, MAX_OUTPUT),
@@ -140,7 +142,12 @@ export async function dispatchRuntimeExecution(
     finishedAt: payload.finishedAt ?? now,
     externalOperationId: payload.externalOperationId ?? payload.jobId,
     error: response.ok ? payload.error : `Runtime transport returned HTTP ${response.status}`,
+    acceptedFenceVersion: payload.acceptedFenceVersion,
   };
+  if (response.ok && result.acceptedFenceVersion !== undefined && result.acceptedFenceVersion !== request.executionVersion) {
+    result.outcome = 'possibly_succeeded';
+    result.error = `Runtime target acknowledged fence generation ${result.acceptedFenceVersion}; expected ${request.executionVersion}`;
+  }
   return completeRuntimeExecution(env.DB, tenantId, transportRequest, result);
 }
 

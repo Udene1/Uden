@@ -66,6 +66,7 @@ describe.sequential('durable graph attempt recovery D1 integration', () => {
       resumeAttemptExternalOutcome?: string;
     }) | undefined;
 
+    expect(node?.status).toBe('ready');
     expect(node?.attemptedModels).toEqual([]);
     expect(node?.resumeAttemptNumber).toBe(1);
     expect(node?.resumeAttemptModel).toBe('gpt-4o-mini');
@@ -89,6 +90,7 @@ describe.sequential('durable graph attempt recovery D1 integration', () => {
     }
     const recovered = await getPersistedGraph(db, 'attempt-recovery-tenant', 'attempt-history-graph');
     const node = recovered?.nodes[0] as TaskGraph['nodes'][number] & { resumeAttemptNumber?: number; resumeAttemptModel?: string };
+    expect(node.status).toBe('ready');
     expect(node.attemptedModels).toEqual(['gpt-4o-mini']);
     expect(node.resumeAttemptNumber).toBe(2);
     expect(node.resumeAttemptModel).toBe('gpt-4o');

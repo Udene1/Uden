@@ -5,152 +5,37 @@ export type RepositoryOperationType = 'create_branch' | 'commit_files' | 'create
 export type RepositoryOperationStatus = 'authorized' | 'in_flight' | 'completed' | 'failed' | 'unknown';
 export type RepositoryExternalOutcome = 'not_started' | 'in_flight' | 'completed' | 'failed' | 'unknown';
 
-export interface RepositoryOperationInput {
-  id: string;
-  tenantId: string;
-  graphId: string;
-  nodeId: string;
-  executionOwner: string;
-  executionVersion: number;
-  repository: CodeRepositoryRef;
-  branch?: string;
-  operation: RepositoryOperationType;
-  expectedHeadSha?: string;
-  idempotencyKey: string;
+export interface RepositoryOperationInput { id:string; tenantId:string; graphId:string; nodeId:string; executionOwner:string; executionVersion:number; repository:CodeRepositoryRef; branch?:string; operation:RepositoryOperationType; expectedHeadSha?:string; idempotencyKey:string; }
+export interface RepositoryOperationRecord extends RepositoryOperationInput { status:RepositoryOperationStatus; externalOutcome:RepositoryExternalOutcome; resultSha?:string; pullRequestNumber?:number; error?:string; createdAt:string; updatedAt:string; completedAt?:string; }
+
+type OperationRow = { id:string; tenant_id:string; graph_id:string; node_id:string; execution_owner:string; execution_version:number; provider:CodeSourceProvider; repository_owner:string; repository_name:string; branch:string|null; operation:RepositoryOperationType; expected_head_sha:string|null; idempotency_key:string; status:RepositoryOperationStatus; external_outcome:RepositoryExternalOutcome; result_sha:string|null; pull_request_number:number|null; error:string|null; created_at:string; updated_at:string; completed_at:string|null; };
+function map(row:OperationRow):RepositoryOperationRecord{return {id:row.id,tenantId:row.tenant_id,graphId:row.graph_id,nodeId:row.node_id,executionOwner:row.execution_owner,executionVersion:row.execution_version,repository:{provider:row.provider,owner:row.repository_owner,repo:row.repository_name},branch:row.branch??undefined,operation:row.operation,expectedHeadSha:row.expected_head_sha??undefined,idempotencyKey:row.idempotency_key,status:row.status,externalOutcome:row.external_outcome,resultSha:row.result_sha??undefined,pullRequestNumber:row.pull_request_number??undefined,error:row.error??undefined,createdAt:row.created_at,updatedAt:row.updated_at,completedAt:row.completed_at??undefined};}
+async function getById(db:D1Database,tenantId:string,id:string){const row=await db.prepare('SELECT * FROM repository_operations WHERE tenant_id=? AND id=?').bind(tenantId,id).first<OperationRow>();return row?map(row):null;}
+export async function getRepositoryOperation(db:D1Database,tenantId:string,id:string){return getById(db,tenantId,id);}
+export async function getRepositoryOperationByIdempotency(db:D1Database,tenantId:string,idempotencyKey:string){const row=await db.prepare('SELECT * FROM repository_operations WHERE tenant_id=? AND idempotency_key=?').bind(tenantId,idempotencyKey).first<OperationRow>();return row?map(row):null;}
+
+export async function authorizeRepositoryOperation(db:D1Database,input:RepositoryOperationInput):Promise<RepositoryOperationRecord>{
+  const existing=await getRepositoryOperationByIdempotency(db,input.tenantId,input.idempotencyKey);
+  if(existing){if(existing.graphId!==input.graphId||existing.nodeId!==input.nodeId||existing.operation!==input.operation)throw new Error('Repository operation idempotency key is already bound to another operation');return existing;}
+  const result=await db.prepare(`INSERT INTO repository_operations (id,tenant_id,graph_id,node_id,execution_owner,execution_version,provider,repository_owner,repository_name,branch,operation,expected_head_sha,idempotency_key,status,external_outcome) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING *`).bind(input.id,input.tenantId,input.graphId,input.nodeId,input.executionOwner,input.executionVersion,input.repository.provider,input.repository.owner,input.repository.repo,input.branch??null,input.operation,input.expectedHeadSha??null,input.idempotencyKey,'authorized','not_started',input.graphId,input.tenantId,input.executionOwner,input.executionVersion).first<OperationRow>();
+  if(result)return map(result);const raced=await getRepositoryOperationByIdempotency(db,input.tenantId,input.idempotencyKey);if(raced)return raced;throw new Error('Graph execution lease lost before repository operation authorization');
 }
 
-export interface RepositoryOperationRecord extends RepositoryOperationInput {
-  status: RepositoryOperationStatus;
-  externalOutcome: RepositoryExternalOutcome;
-  resultSha?: string;
-  pullRequestNumber?: number;
-  error?: string;
-  createdAt: string;
-  updatedAt: string;
-  completedAt?: string;
+export async function markRepositoryOperationInFlight(db:D1Database,op:RepositoryOperationInput):Promise<RepositoryOperationRecord>{
+  const row=await db.prepare(`UPDATE repository_operations SET status='in_flight',external_outcome='in_flight',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='authorized' AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) RETURNING *`).bind(op.tenantId,op.id,op.executionOwner,op.executionVersion,op.graphId,op.tenantId,op.executionOwner,op.executionVersion).first<OperationRow>();
+  if(!row)throw new Error('Graph execution lease lost before repository side effect');return map(row);
 }
 
-type OperationRow = {
-  id: string; tenant_id: string; graph_id: string; node_id: string;
-  execution_owner: string; execution_version: number; provider: CodeSourceProvider;
-  repository_owner: string; repository_name: string; branch: string | null;
-  operation: RepositoryOperationType; expected_head_sha: string | null;
-  idempotency_key: string; status: RepositoryOperationStatus;
-  external_outcome: RepositoryExternalOutcome; result_sha: string | null;
-  pull_request_number: number | null; error: string | null;
-  created_at: string; updated_at: string; completed_at: string | null;
-};
-
-function map(row: OperationRow): RepositoryOperationRecord {
-  return {
-    id: row.id, tenantId: row.tenant_id, graphId: row.graph_id, nodeId: row.node_id,
-    executionOwner: row.execution_owner, executionVersion: row.execution_version,
-    repository: { provider: row.provider, owner: row.repository_owner, repo: row.repository_name },
-    branch: row.branch ?? undefined, operation: row.operation,
-    expectedHeadSha: row.expected_head_sha ?? undefined, idempotencyKey: row.idempotency_key,
-    status: row.status, externalOutcome: row.external_outcome, resultSha: row.result_sha ?? undefined,
-    pullRequestNumber: row.pull_request_number ?? undefined, error: row.error ?? undefined,
-    createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at ?? undefined,
-  };
+export async function completeRepositoryOperation(db:D1Database,op:RepositoryOperationInput,result:{resultSha?:string;pullRequestNumber?:number}):Promise<RepositoryOperationRecord>{
+  const row=await db.prepare(`UPDATE repository_operations SET status='completed',external_outcome='completed',result_sha=?,pull_request_number=?,updated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='in_flight' AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) RETURNING *`).bind(result.resultSha??null,result.pullRequestNumber??null,op.tenantId,op.id,op.executionOwner,op.executionVersion,op.graphId,op.tenantId,op.executionOwner,op.executionVersion).first<OperationRow>();
+  if(!row)throw new Error('Repository operation completion rejected by execution fence');return map(row);
 }
-
-async function getById(db: D1Database, tenantId: string, id: string): Promise<RepositoryOperationRecord | null> {
-  const row = await db.prepare('SELECT * FROM repository_operations WHERE tenant_id=? AND id=?').bind(tenantId, id).first<OperationRow>();
-  return row ? map(row) : null;
+export async function failRepositoryOperation(db:D1Database,op:RepositoryOperationInput,error:string):Promise<RepositoryOperationRecord>{
+  const row=await db.prepare(`UPDATE repository_operations SET status='failed',external_outcome='failed',error=?,updated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='in_flight' AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) RETURNING *`).bind(error.slice(0,4000),op.tenantId,op.id,op.executionOwner,op.executionVersion,op.graphId,op.tenantId,op.executionOwner,op.executionVersion).first<OperationRow>();
+  if(!row)throw new Error('Repository operation failure update rejected by execution fence');return map(row);
 }
-
-export async function getRepositoryOperation(db: D1Database, tenantId: string, id: string): Promise<RepositoryOperationRecord | null> {
-  return getById(db, tenantId, id);
+export async function markRepositoryOperationUnknown(db:D1Database,op:RepositoryOperationInput,error:string):Promise<RepositoryOperationRecord>{
+  const row=await db.prepare(`UPDATE repository_operations SET status='unknown',external_outcome='unknown',error=?,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='in_flight' AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until IS NOT NULL AND lease_until>CURRENT_TIMESTAMP) RETURNING *`).bind(error.slice(0,4000),op.tenantId,op.id,op.executionOwner,op.executionVersion,op.graphId,op.tenantId,op.executionOwner,op.executionVersion).first<OperationRow>();
+  if(!row)throw new Error('Repository operation uncertainty update rejected by execution fence');return map(row);
 }
-
-export async function getRepositoryOperationByIdempotency(db: D1Database, tenantId: string, idempotencyKey: string): Promise<RepositoryOperationRecord | null> {
-  const row = await db.prepare('SELECT * FROM repository_operations WHERE tenant_id=? AND idempotency_key=?').bind(tenantId, idempotencyKey).first<OperationRow>();
-  return row ? map(row) : null;
-}
-
-/** Create exactly one durable operation, but only while the caller owns the live graph fence. */
-export async function authorizeRepositoryOperation(db: D1Database, input: RepositoryOperationInput): Promise<RepositoryOperationRecord> {
-  const existing = await getRepositoryOperationByIdempotency(db, input.tenantId, input.idempotencyKey);
-  if (existing) {
-    if (existing.graphId !== input.graphId || existing.nodeId !== input.nodeId || existing.operation !== input.operation) {
-      throw new Error('Repository operation idempotency key is already bound to another operation');
-    }
-    return existing;
-  }
-
-  const result = await db.prepare(`
-    INSERT INTO repository_operations
-      (id,tenant_id,graph_id,node_id,execution_owner,execution_version,provider,repository_owner,repository_name,branch,operation,expected_head_sha,idempotency_key,status,external_outcome)
-    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-    WHERE EXISTS (
-      SELECT 1 FROM task_graphs
-      WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=?
-        AND lease_until IS NOT NULL AND lease_until > CURRENT_TIMESTAMP
-    )
-    ON CONFLICT(tenant_id,idempotency_key) DO NOTHING
-    RETURNING *
-  `).bind(
-    input.id, input.tenantId, input.graphId, input.nodeId, input.executionOwner, input.executionVersion,
-    input.repository.provider, input.repository.owner, input.repository.repo, input.branch ?? null,
-    input.operation, input.expectedHeadSha ?? null, input.idempotencyKey, 'authorized', 'not_started',
-    input.graphId, input.tenantId, input.executionOwner, input.executionVersion,
-  ).first<OperationRow>();
-
-  if (result) return map(result);
-  const raced = await getRepositoryOperationByIdempotency(db, input.tenantId, input.idempotencyKey);
-  if (raced) return raced;
-  throw new Error('Graph execution lease lost before repository operation authorization');
-}
-
-export async function markRepositoryOperationInFlight(db: D1Database, op: RepositoryOperationInput): Promise<RepositoryOperationRecord> {
-  const row = await db.prepare(`
-    UPDATE repository_operations
-    SET status='in_flight', external_outcome='in_flight', updated_at=CURRENT_TIMESTAMP
-    WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=?
-      AND status='authorized'
-      AND EXISTS (SELECT 1 FROM task_graphs WHERE id=? AND tenant_id=? AND execution_owner=? AND execution_version=? AND lease_until IS NOT NULL AND lease_until>CURRENT_TIMESTAMP)
-    RETURNING *
-  `).bind(op.tenantId, op.id, op.executionOwner, op.executionVersion, op.graphId, op.tenantId, op.executionOwner, op.executionVersion).first<OperationRow>();
-  if (!row) throw new Error('Graph execution lease lost before repository side effect');
-  return map(row);
-}
-
-export async function completeRepositoryOperation(db: D1Database, op: RepositoryOperationInput, result: { resultSha?: string; pullRequestNumber?: number }): Promise<RepositoryOperationRecord> {
-  const row = await db.prepare(`
-    UPDATE repository_operations
-    SET status='completed', external_outcome='completed', result_sha=?, pull_request_number=?, updated_at=CURRENT_TIMESTAMP, completed_at=CURRENT_TIMESTAMP
-    WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='in_flight'
-    RETURNING *
-  `).bind(result.resultSha ?? null, result.pullRequestNumber ?? null, op.tenantId, op.id, op.executionOwner, op.executionVersion).first<OperationRow>();
-  if (!row) throw new Error('Repository operation completion rejected by execution fence');
-  return map(row);
-}
-
-export async function failRepositoryOperation(db: D1Database, op: RepositoryOperationInput, error: string): Promise<RepositoryOperationRecord> {
-  const row = await db.prepare(`
-    UPDATE repository_operations
-    SET status='failed', external_outcome='failed', error=?, updated_at=CURRENT_TIMESTAMP, completed_at=CURRENT_TIMESTAMP
-    WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='in_flight'
-    RETURNING *
-  `).bind(error.slice(0, 4000), op.tenantId, op.id, op.executionOwner, op.executionVersion).first<OperationRow>();
-  if (!row) throw new Error('Repository operation failure update rejected by execution fence');
-  return map(row);
-}
-
-/** Used when the remote forge may have accepted the write but the response was lost. Never silently converts UNKNOWN to FAILED. */
-export async function markRepositoryOperationUnknown(db: D1Database, op: RepositoryOperationInput, error: string): Promise<RepositoryOperationRecord> {
-  const row = await db.prepare(`
-    UPDATE repository_operations
-    SET status='unknown', external_outcome='unknown', error=?, updated_at=CURRENT_TIMESTAMP
-    WHERE tenant_id=? AND id=? AND execution_owner=? AND execution_version=? AND status='in_flight'
-    RETURNING *
-  `).bind(error.slice(0, 4000), op.tenantId, op.id, op.executionOwner, op.executionVersion).first<OperationRow>();
-  if (!row) throw new Error('Repository operation uncertainty update rejected by execution fence');
-  return map(row);
-}
-
-export async function listUnknownRepositoryOperations(db: D1Database, tenantId: string, limit = 50): Promise<RepositoryOperationRecord[]> {
-  const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
-  const rows = await db.prepare(`SELECT * FROM repository_operations WHERE tenant_id=? AND status='unknown' ORDER BY updated_at ASC LIMIT ${safeLimit}`).bind(tenantId).all<OperationRow>();
-  return (rows.results ?? []).map(map);
-}
+export async function listUnknownRepositoryOperations(db:D1Database,tenantId:string,limit=50):Promise<RepositoryOperationRecord[]>{const safeLimit=Math.max(1,Math.min(100,Math.trunc(limit)));const rows=await db.prepare(`SELECT * FROM repository_operations WHERE tenant_id=? AND status='unknown' ORDER BY updated_at ASC LIMIT ${safeLimit}`).bind(tenantId).all<OperationRow>();return(rows.results??[]).map(map);}

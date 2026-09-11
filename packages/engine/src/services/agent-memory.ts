@@ -49,7 +49,7 @@ export async function remember(env: HonoEnv['Bindings'], tenantId: string, input
   return mapMemory(row);
 }
 
-export async function recall(env: HonoEnv['Bindings'], tenantId: string, options: { projectId?: string; graphId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
+export async function recall(env: HonoEnv['Bindings'], tenantId: string, options: { projectId?: string; graphId?: string; nodeId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
   const limit = Math.min(MAX_RESULTS, Math.max(1, options.limit ?? 10));
   const scope = options.scope;
   const query = options.query?.trim();
@@ -58,9 +58,26 @@ export async function recall(env: HonoEnv['Bindings'], tenantId: string, options
       AND (? IS NULL OR scope=?)
       AND (? IS NULL OR project_id=? OR scope='tenant')
       AND (? IS NULL OR graph_id=? OR scope IN ('tenant','project'))
+      AND (? IS NULL OR scope!='node' OR node_id=?)
+      AND (? IS NOT NULL OR scope!='node')
       AND (? IS NULL OR lower(key || ' ' || content) LIKE lower('%' || ? || '%'))
     ORDER BY confidence DESC, updated_at DESC LIMIT ?`)
-    .bind(tenantId,scope ?? null,scope ?? null,options.projectId ?? null,options.projectId ?? null,options.graphId ?? null,options.graphId ?? null,query ?? null,query ?? null,limit).all<any>();
+    .bind(
+      tenantId,
+      scope ?? null,
+      scope ?? null,
+      options.projectId ?? null,
+      options.projectId ?? null,
+      options.graphId ?? null,
+      options.graphId ?? null,
+      options.nodeId ?? null,
+      options.nodeId ?? null,
+      options.nodeId ?? null,
+      query ?? null,
+      query ?? null,
+      limit,
+    )
+    .all<any>();
   return (rows.results ?? []).map(mapMemory);
 }
 

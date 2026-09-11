@@ -36,8 +36,20 @@ BEGIN
   SELECT RAISE(ABORT, 'Illegal task graph status transition');
 END;
 
--- A graph may not become terminal while an external operation is still capable
--- of having an unobserved effect. The executor must surface reconciliation.
+DROP TRIGGER IF EXISTS task_graph_terminal_provider_guard;
+CREATE TRIGGER task_graph_terminal_provider_guard
+BEFORE UPDATE OF status ON task_graphs
+WHEN NEW.status IN ('completed','failed','blocked')
+ AND EXISTS (
+   SELECT 1 FROM task_graph_attempts
+   WHERE task_graph_attempts.graph_id=NEW.id
+     AND task_graph_attempts.tenant_id=NEW.tenant_id
+     AND task_graph_attempts.external_outcome IN ('in_flight','possibly_succeeded','unknown')
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'Graph cannot become terminal with unresolved provider side effects');
+END;
+
 DROP TRIGGER IF EXISTS task_graph_terminal_unknown_guard;
 CREATE TRIGGER task_graph_terminal_unknown_guard
 BEFORE UPDATE OF status ON task_graphs

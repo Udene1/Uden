@@ -1,0 +1,74 @@
+import type { HonoEnv } from '../types';
+
+export type AgentMemoryKind = 'fact' | 'decision' | 'constraint' | 'preference' | 'lesson' | 'artifact';
+export type AgentMemoryScope = 'tenant' | 'project' | 'graph' | 'node';
+
+export interface AgentMemory {
+  id: string;
+  tenantId: string;
+  projectId?: string;
+  graphId?: string;
+  nodeId?: string;
+  kind: AgentMemoryKind;
+  scope: AgentMemoryScope;
+  key: string;
+  content: string;
+  sourceType: string;
+  sourceId?: string;
+  confidence: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const MAX_CONTENT = 20_000;
+const MAX_RESULTS = 20;
+
+function validScope(scope: AgentMemoryScope): boolean {
+  return ['tenant', 'project', 'graph', 'node'].includes(scope);
+}
+
+function assertScopeIdentity(memory: Pick<AgentMemory, 'scope' | 'projectId' | 'graphId' | 'nodeId'>): void {
+  if (!validScope(memory.scope)) throw new Error('Invalid memory scope');
+  if (memory.scope === 'project' && !memory.projectId) throw new Error('Project memory requires projectId');
+  if (memory.scope === 'graph' && !memory.graphId) throw new Error('Graph memory requires graphId');
+  if (memory.scope === 'node' && (!memory.graphId || !memory.nodeId)) throw new Error('Node memory requires graphId and nodeId');
+}
+
+export async function remember(env: HonoEnv['Bindings'], tenantId: string, input: Omit<AgentMemory, 'id' | 'tenantId' | 'createdAt' | 'updatedAt'>): Promise<AgentMemory> {
+  if (!input.key.trim() || input.key.length > 500) throw new Error('Memory key is invalid');
+  if (!input.content.trim() || input.content.length > MAX_CONTENT) throw new Error('Memory content is invalid');
+  assertScopeIdentity(input);
+  const confidence = Math.max(0, Math.min(1, input.confidence));
+  const id = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO agent_memories (id,tenant_id,project_id,graph_id,node_id,kind,scope,key,content,source_type,source_id,confidence,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    ON CONFLICT(tenant_id,scope,key) DO UPDATE SET project_id=excluded.project_id,graph_id=excluded.graph_id,node_id=excluded.node_id,kind=excluded.kind,content=excluded.content,source_type=excluded.source_type,source_id=excluded.source_id,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP`)
+    .bind(id,tenantId,input.projectId ?? null,input.graphId ?? null,input.nodeId ?? null,input.kind,input.scope,input.key.trim(),input.content,input.sourceType,input.sourceId ?? null,confidence).run();
+  const row = await env.DB.prepare('SELECT * FROM agent_memories WHERE tenant_id=? AND scope=? AND key=?').bind(tenantId,input.scope,input.key.trim()).first<any>();
+  if (!row) throw new Error('Memory write was not durable');
+  return mapMemory(row);
+}
+
+export async function recall(env: HonoEnv['Bindings'], tenantId: string, options: { projectId?: string; graphId?: string; scope?: AgentMemoryScope; query?: string; limit?: number }): Promise<AgentMemory[]> {
+  const limit = Math.min(MAX_RESULTS, Math.max(1, options.limit ?? 10));
+  const scope = options.scope;
+  const query = options.query?.trim();
+  const rows = await env.DB.prepare(`SELECT * FROM agent_memories
+    WHERE tenant_id=?
+      AND (? IS NULL OR scope=?)
+      AND (? IS NULL OR project_id=? OR scope='tenant')
+      AND (? IS NULL OR graph_id=? OR scope IN ('tenant','project'))
+      AND (? IS NULL OR lower(key || ' ' || content) LIKE lower('%' || ? || '%'))
+    ORDER BY confidence DESC, updated_at DESC LIMIT ?`)
+    .bind(tenantId,scope ?? null,scope ?? null,options.projectId ?? null,options.projectId ?? null,options.graphId ?? null,options.graphId ?? null,query ?? null,query ?? null,limit).all<any>();
+  return (rows.results ?? []).map(mapMemory);
+}
+
+export function formatMemoryContext(memories: AgentMemory[]): string {
+  if (memories.length === 0) return '';
+  return ['## Durable memory', ...memories.map(memory => `- [${memory.kind}/${memory.scope}] ${memory.key}: ${memory.content}`)].join('\n');
+}
+
+function mapMemory(row: any): AgentMemory {
+  return { id: row.id, tenantId: row.tenant_id, projectId: row.project_id ?? undefined, graphId: row.graph_id ?? undefined, nodeId: row.node_id ?? undefined, kind: row.kind, scope: row.scope, key: row.key, content: row.content, sourceType: row.source_type, sourceId: row.source_id ?? undefined, confidence: Number(row.confidence), createdAt: row.created_at, updatedAt: row.updated_at };
+}

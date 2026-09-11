@@ -9,10 +9,7 @@ export interface TaskNode {
   id: string; title: string; prompt: string; domain: TaskDomain; complexity: number; expectedFormat: OutputFormat;
   recommendedTier: ModelTier; dependencies: string[]; status: TaskNodeStatus; contextFrom: string[]; attemptedModels: string[];
   kind?: TaskNodeKind; tool?: 'tree' | 'read' | 'search' | 'diff' | 'patch' | 'execute'; toolInput?: Record<string, unknown>;
-  /** Required capability when this node executes against an external runtime. */
-  runtimeCapability?: ExecutionRuntimeCapability;
-  /** Optional runtime-kind routing preference; capability/heartbeat checks still apply. */
-  preferredRuntimeKind?: ExecutionRuntimeKind;
+  runtimeCapability?: ExecutionRuntimeCapability; preferredRuntimeKind?: ExecutionRuntimeKind;
   selectedModel?: string; output?: string; qualityScore?: number; costCents?: number; tokensIn?: number; tokensOut?: number; error?: string;
   approvalRequired?: boolean; approvalState?: ApprovalState; approvalReason?: string; approvedBy?: string; approvedAt?: string;
   runtimeJobId?: string; verification?: TaskNodeVerification; repairAttempts?: number; repairError?: string;
@@ -25,3 +22,6 @@ export interface TaskGraphPlan {
 }
 export interface NodeRoutingContext { qualityPreference: QualityPreference; budgetLeftCents: number; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; latencyPreference?: 'low' | 'balanced' | 'unbounded'; }
 export interface NodeRoutingDecision { nodeId: string; primaryModel: string; fallbackChain: string[]; estimatedCostCents: number; reasoning: string; }
+export interface TaskNodeRuntimeIntent { capability?: ExecutionRuntimeCapability; preferredKind?: ExecutionRuntimeKind; command?: string; args?: readonly string[]; workingDirectory?: string; }
+export function getTaskNodeRuntimeIntent(node: TaskNode): TaskNodeRuntimeIntent { const input=node.toolInput??{}; return { capability:node.runtimeCapability, preferredKind:node.preferredRuntimeKind, command:typeof input.command==='string'?input.command:undefined, args:Array.isArray(input.args)&&input.args.every(value=>typeof value==='string')?input.args as string[]:undefined, workingDirectory:typeof input.workingDirectory==='string'?input.workingDirectory:undefined }; }
+export function requiresRuntime(node: TaskNode): boolean { return Boolean(node.runtimeCapability); }

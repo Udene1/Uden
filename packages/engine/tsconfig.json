@@ -19,5 +19,5 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*", "worker-configuration.d.ts"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.d1.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.d1.test.ts", "src/test/**"]
 }

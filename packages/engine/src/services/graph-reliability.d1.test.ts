@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { getPlatformProxy } from 'wrangler';
 import type { D1Database } from '@cloudflare/workers-types';
+import { resolve } from 'node:path';
 import { reserveBudget, releaseBudget, getBudgetState } from './cost';
 import { blockDependents, getReadyGraphNodes, resumeTaskGraph } from './graph-executor';
 import { persistGraph, persistGraphSnapshot, getPersistedGraph, acquireGraphExecutionLease } from './graph-persistence';

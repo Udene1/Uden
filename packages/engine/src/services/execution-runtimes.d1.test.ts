@@ -19,6 +19,7 @@ describe.sequential('execution runtime fencing D1 integration', () => {
     await applyCurrentD1Schema(db, engineRoot);
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`).bind('runtime-tenant','Runtime tests','runtime@example.test','runtime-hash',100).run();
     await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('runtime-root','runtime-tenant','runtime execution test','processing').run();
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`).bind('runtime-fence-root','runtime-tenant','runtime fence test','processing').run();
   });
 
   afterAll(async () => { await dispose?.(); });
@@ -33,7 +34,7 @@ describe.sequential('execution runtime fencing D1 integration', () => {
 
   it('fences runtime completion to the exact graph owner and generation', async () => {
     await registerExecutionRuntime(db, 'runtime-tenant', { id: 'desktop-b', tenantId: 'runtime-tenant', kind: 'desktop_local', state: 'online', capabilities: ['command.exec'], lastHeartbeatAt: new Date().toISOString() });
-    const graph: TaskGraph = { id: 'runtime-fence-graph', rootTaskId: 'runtime-root', goal: 'runtime fence', createdAt: new Date().toISOString(), nodes: [{ id: 'node', title: 'Node', prompt: 'execute', domain: 'general', complexity: 1, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [] }] };
+    const graph: TaskGraph = { id: 'runtime-fence-graph', rootTaskId: 'runtime-fence-root', goal: 'runtime fence', createdAt: new Date().toISOString(), nodes: [{ id: 'node', title: 'Node', prompt: 'execute', domain: 'general', complexity: 1, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [] }] };
     await persistGraph(db, 'runtime-tenant', graph);
     const version = await acquireGraphExecutionLease(db, 'runtime-tenant', graph.id, 'runtime-worker-a');
     const request = { runtimeId: 'desktop-b', graphId: graph.id, nodeId: 'node', attemptId: 'runtime-fence-attempt', executionOwner: 'runtime-worker-a', executionVersion: version!, leaseExpiresAt: new Date(Date.now()+60_000).toISOString(), capability: 'command.exec' as const, command: 'echo', args: ['hello'] };

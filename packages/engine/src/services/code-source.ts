@@ -62,7 +62,7 @@ export function getCodeSource(provider: CodeSourceProvider): CodeSource {
       return pull.files ?? [];
     },
     createBranch: (env, tenantId, ref, branch, fromSha) => createGitHubBranch(env, tenantId, githubRef(ref), branch, fromSha),
-    commitFiles: (env, tenantId, ref, branch, changes, precondition, message) => commitGitHubFiles(env, tenantId, githubRef(ref), branch, precondition.expectedHeadSha, message, changes as GitHubWriteFile[]),
+    commitFiles: (env, tenantId, ref, branch, changes, precondition, message) => commitGitHubFiles(env, tenantId, githubRef(ref), branch, changes as GitHubWriteFile[], precondition.expectedHeadSha, message),
     createPullRequest: (env, tenantId, ref, head, base, title, body) => createGitHubPull(env, tenantId, githubRef(ref), head, base, title, body),
     mergePullRequest: (env, tenantId, ref, number, precondition) => mergeGitHubPull(env, tenantId, githubRef(ref), number, precondition.expectedHeadSha),
   };

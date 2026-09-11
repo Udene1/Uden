@@ -1,16 +1,6 @@
 import type { Env } from '../types';
-import {
-  listGitHubRepositories, getGitHubTree, getGitHubTreeBySha, getGitHubBlob,
-  getGitHubCommit, listGitHubCommits, listGitHubPulls, getGitHubPull, getGitHubPullFiles,
-  createGitHubBranch, commitGitHubFiles, createGitHubPull, mergeGitHubPull,
-  type GitHubWriteFile,
-} from './github-connector';
-import {
-  listOriginRepositories, listOriginCommits, getOriginCommit, getOriginBlob,
-  getOriginTree, listOriginPulls, getOriginPull, getOriginPullFiles,
-  createOriginBranch, commitOriginFiles, createOriginPull, mergeOriginPull,
-  type OriginWriteFile,
-} from './origin-connector';
+import { listGitHubRepositories, getGitHubTree, getGitHubTreeBySha, getGitHubBlob, getGitHubCommit, listGitHubCommits, listGitHubPulls, getGitHubPull, getGitHubPullFiles, createGitHubBranch, commitGitHubFiles, createGitHubPull, mergeGitHubPull, type GitHubWriteFile } from './github-connector';
+import { listOriginRepositories, listOriginCommits, getOriginCommit, getOriginBlob, getOriginTree, listOriginPulls, getOriginPull, getOriginPullFiles, createOriginBranch, commitOriginFiles, createOriginPull, mergeOriginPull, type OriginWriteFile } from './origin-connector';
 
 export type CodeSourceProvider = 'github' | 'origin';
 export interface CodeRepositoryRef { provider: CodeSourceProvider; owner: string; repo: string; }
@@ -65,10 +55,15 @@ export function getCodeSource(provider: CodeSourceProvider): CodeSource {
     createPullRequest: (env, tenantId, ref, head, base, title, body) => { const [owner, repo] = githubOwnerRepo(ref); return createGitHubPull(env, tenantId, owner, repo, head, base, title, body); },
     mergePullRequest: (env, tenantId, ref, number, precondition) => { const [owner, repo] = githubOwnerRepo(ref); return mergeGitHubPull(env, tenantId, owner, repo, number, precondition.expectedHeadSha); },
   };
+
   return {
     provider,
     listRepositories: (env, tenantId) => listOriginRepositories(env, tenantId),
-    getRepository: async (env, tenantId, ref) => { const [owner, repo] = originOwnerRepo(ref); const result = await listOriginRepositories(env, tenantId) as { repositories?: Array<{ namespace?: string; name?: string }> }; return result.repositories?.find(r => r.namespace === owner && r.name === repo) ?? null; },
+    getRepository: async (env, tenantId, ref) => {
+      const [owner, repo] = originOwnerRepo(ref);
+      const result = await listOriginRepositories(env, tenantId) as { repositories?: Array<{ namespace?: string; name?: string }> };
+      return result.repositories?.find(r => r.namespace === owner && r.name === repo) ?? null;
+    },
     getTree: (env, tenantId, ref, treeRef) => { const [owner, repo] = originOwnerRepo(ref); return getOriginTree(env, tenantId, owner, repo, treeRef); },
     getBlob: (env, tenantId, ref, sha) => { const [owner, repo] = originOwnerRepo(ref); return getOriginBlob(env, tenantId, owner, repo, sha); },
     getCommit: (env, tenantId, ref, sha) => { const [owner, repo] = originOwnerRepo(ref); return getOriginCommit(env, tenantId, owner, repo, sha); },

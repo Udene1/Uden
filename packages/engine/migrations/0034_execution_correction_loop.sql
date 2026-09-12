@@ -74,3 +74,27 @@ CREATE TABLE IF NOT EXISTS execution_validations (
   FOREIGN KEY (plan_revision_id) REFERENCES execution_plan_revisions(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_execution_validations_graph ON execution_validations(tenant_id,graph_id,created_at DESC);
+
+-- An open contradiction invalidates the current execution model. No worker may
+-- advance graph or node state until the contradiction has passed validation.
+DROP TRIGGER IF EXISTS execution_contradiction_node_halt;
+CREATE TRIGGER execution_contradiction_node_halt
+BEFORE UPDATE OF status ON task_graph_nodes
+WHEN EXISTS (
+  SELECT 1 FROM execution_contradictions c
+  WHERE c.tenant_id=NEW.tenant_id AND c.graph_id=NEW.graph_id AND c.status='open'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Execution halted by unresolved contradiction');
+END;
+
+DROP TRIGGER IF EXISTS execution_contradiction_graph_halt;
+CREATE TRIGGER execution_contradiction_graph_halt
+BEFORE UPDATE OF status ON task_graphs
+WHEN EXISTS (
+  SELECT 1 FROM execution_contradictions c
+  WHERE c.tenant_id=NEW.tenant_id AND c.graph_id=NEW.id AND c.status='open'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Graph execution halted by unresolved contradiction');
+END;

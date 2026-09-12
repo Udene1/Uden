@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS execution_plan_revisions (
   FOREIGN KEY (corrective_action_id) REFERENCES execution_corrective_actions(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_execution_plan_revisions_graph ON execution_plan_revisions(tenant_id,graph_id,status,created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_execution_plan_revision_active ON execution_plan_revisions(tenant_id,graph_id) WHERE status='active';
 
 CREATE TABLE IF NOT EXISTS execution_validations (
   id TEXT PRIMARY KEY,

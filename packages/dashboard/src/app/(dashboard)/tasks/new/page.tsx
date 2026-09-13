@@ -1,9 +1,16 @@
 'use client';
-import { useState } from 'react';
+
+import { useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Info, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, TaskMode } from '@/lib/api';
+
+const examples = [
+  { label: 'Risk review', value: 'Analyze this project, identify the highest-risk issues, and propose fixes I can review before anything changes.' },
+  { label: 'Hardening plan', value: 'Review the current architecture and produce a prioritized plan for the next production-hardening pass.' },
+  { label: 'Failure investigation', value: 'Investigate this failure, trace the likely cause, and give me a verified remediation path.' },
+];
 
 export default function NewTaskPage() {
   const { data: session } = useSession();
@@ -13,6 +20,7 @@ export default function NewTaskPage() {
   const [mode, setMode] = useState<TaskMode>('permission-based');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const words = useMemo(() => (prompt.trim() ? prompt.trim().split(/\s+/).length : 0), [prompt]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -29,16 +37,77 @@ export default function NewTaskPage() {
     }
   }
 
-  return <div className="max-w-5xl space-y-7 pb-10">
-    <header><p className="text-sm text-[var(--accent-primary)] flex items-center gap-2"><Sparkles size={15}/> Workbench</p><h1 className="text-3xl font-semibold text-[var(--text-primary)] mt-2">Start new work</h1><p className="text-sm text-[var(--text-secondary)] mt-1 max-w-2xl">Describe the outcome you need. Uden will create the durable task, plan the execution graph when appropriate, route the work, and record the result.</p></header>
-    <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-6">
-      <form onSubmit={handleSubmit} className="glass-card p-5 md:p-6 border border-[var(--border-color)] shadow-[var(--shadow-glow)] space-y-5">
-        <div className="space-y-2"><label htmlFor="task-prompt" className="text-sm font-medium text-[var(--text-primary)]">What should Uden do?</label><textarea id="task-prompt" value={prompt} onChange={(event)=>setPrompt(event.target.value)} onKeyDown={(event)=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.currentTarget.form?.requestSubmit();}}} autoFocus rows={11} className="w-full resize-y min-h-64 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent-primary)] transition-colors" placeholder="Example: Analyze this project, identify the highest-risk issues, and propose fixes I can review before anything changes." /></div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1"><div className="flex items-center gap-2"><ShieldCheck size={16} className="text-[var(--text-muted)]"/><select aria-label="Execution mode" value={mode} onChange={(event)=>setMode(event.target.value as TaskMode)} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-secondary)] outline-none"><option value="permission-based">Ask before high-risk actions</option><option value="permissionless">Permissionless</option></select></div><button type="submit" disabled={!prompt.trim()||!apiKey||creating} className="btn btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">{creating?'Starting…':<>Start work <ArrowRight size={17}/></>}</button></div>
-        {!apiKey&&<p className="text-sm text-[var(--text-secondary)]">Sign in to start work. Your task will be created through the authenticated workspace API.</p>}
-        {error&&<div role="alert" className="rounded-lg border border-red-400/30 bg-red-400/5 p-3 text-sm text-red-200">{error}</div>}
-      </form>
-      <aside className="space-y-4"><div className="glass-card p-5 border border-[var(--border-color)]"><h2 className="font-semibold text-[var(--text-primary)]">Execution boundary</h2><p className="text-sm text-[var(--text-secondary)] mt-2 leading-6">Permission-based mode pauses high-risk work for explicit approval. Permissionless mode allows the execution policy to proceed without that approval gate.</p></div><div className="glass-card p-5 border border-[var(--border-color)]"><h2 className="font-semibold text-[var(--text-primary)]">What happens next</h2><ol className="mt-3 space-y-3 text-sm text-[var(--text-secondary)]"><li><span className="text-[var(--text-primary)] font-medium">1. Plan</span> — Uden classifies and decomposes the request when needed.</li><li><span className="text-[var(--text-primary)] font-medium">2. Route</span> — each graph unit can use the model tier suited to the work.</li><li><span className="text-[var(--text-primary)] font-medium">3. Execute</span> — real provider calls and project/runtime actions follow execution policy.</li><li><span className="text-[var(--text-primary)] font-medium">4. Verify</span> — the durable task and execution trail remain available for review.</li></ol></div></aside>
+  return (
+    <div className="max-w-6xl space-y-6 pb-28 md:space-y-7 md:pb-10">
+      <header>
+        <p className="flex items-center gap-2 text-sm text-[var(--accent-primary)]"><Sparkles size={15} /> Workbench</p>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)] md:text-3xl">Start with the outcome</h1>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">Tell Uden what needs to be true when the work is finished. Include context and constraints when they change what a correct result means.</p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.6fr_1fr] md:gap-6">
+        <form onSubmit={handleSubmit} className="glass-card space-y-5 border border-[var(--border-color)] p-4 shadow-[var(--shadow-glow)] md:p-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="task-prompt" className="text-sm font-medium text-[var(--text-primary)]">What should Uden accomplish?</label>
+              <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{words} words</span>
+            </div>
+            <textarea id="task-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} autoFocus rows={10} className="min-h-56 w-full resize-y rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] md:min-h-64" placeholder={'Outcome: what should be true?\nContext: what should Uden know?\nConstraints: what must it not do, or what matters most?'} />
+            <div className="flex flex-wrap gap-2 pt-1">
+              {examples.map((example) => <button key={example.label} type="button" onClick={() => setPrompt(example.value)} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-left text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--accent-primary)] hover:text-[var(--text-primary)]">{example.label}</button>)}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3.5">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={17} className="mt-0.5 shrink-0 text-[var(--accent-primary)]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[var(--text-primary)]">Execution mode</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">This changes where the durable execution system can pause for human intervention.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {(['permission-based', 'permissionless'] as TaskMode[]).map((option) => (
+                    <button key={option} type="button" onClick={() => setMode(option)} className={`rounded-lg border p-3 text-left ${mode === option ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-color)] bg-[var(--bg-card)]'}`}>
+                      <span className="block text-xs font-semibold text-[var(--text-primary)]">{option === 'permission-based' ? 'Approval-gated' : 'Permissionless'}</span>
+                      <span className="mt-1 block text-[11px] text-[var(--text-muted)]">{option === 'permission-based' ? 'Pause before high-risk actions.' : 'Run policy-compliant actions without that approval gate.'}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {!apiKey && <p className="text-sm text-[var(--text-secondary)]">Sign in to start work. The task is created through the authenticated workspace API.</p>}
+          {error && <div role="alert" className="rounded-lg border border-red-400/30 bg-red-400/5 p-3 text-sm text-red-200">{error}</div>}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[11px] text-[var(--text-muted)]">⌘/Ctrl + Enter starts work</p>
+            <button type="submit" disabled={!prompt.trim() || !apiKey || creating} className="btn btn-primary flex min-h-12 items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">{creating ? 'Creating durable task…' : <>Start work <ArrowRight size={17} /></>}</button>
+          </div>
+        </form>
+
+        <aside className="space-y-4">
+          <div className="glass-card border border-[var(--border-color)] p-4 md:p-5">
+            <h2 className="font-semibold text-[var(--text-primary)]">Before execution</h2>
+            <ul className="mt-4 space-y-3 text-sm text-[var(--text-secondary)]">
+              <li className="flex gap-2"><CheckCircle2 size={16} className="shrink-0 text-[var(--accent-primary)]" />The requested outcome is recorded.</li>
+              <li className="flex gap-2"><CheckCircle2 size={16} className="shrink-0 text-[var(--accent-primary)]" />Execution state and decisions are durable.</li>
+              <li className="flex gap-2"><CheckCircle2 size={16} className="shrink-0 text-[var(--accent-primary)]" />Attempts, cost, and verification remain inspectable.</li>
+            </ul>
+          </div>
+          <div className="glass-card border border-[var(--border-color)] p-4 md:p-5">
+            <div className="flex items-center gap-2"><LockKeyhole size={16} className="text-[var(--accent-primary)]" /><h2 className="font-semibold text-[var(--text-primary)]">Execution boundary</h2></div>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">Approval is an execution-system state transition. Permissionless does not bypass policy, capability, budget, or runtime controls.</p>
+          </div>
+          <div className="glass-card border border-[var(--border-color)] p-4 md:p-5">
+            <div className="flex items-center gap-2"><Info size={16} className="text-[var(--accent-primary)]" /><h2 className="font-semibold text-[var(--text-primary)]">After you start</h2></div>
+            <ol className="mt-3 space-y-3 text-sm text-[var(--text-secondary)]">
+              <li><b className="text-[var(--text-primary)]">1. Plan</b> — classify and decompose when needed.</li>
+              <li><b className="text-[var(--text-primary)]">2. Route</b> — select a model tier for each unit.</li>
+              <li><b className="text-[var(--text-primary)]">3. Execute</b> — real provider/runtime actions follow policy.</li>
+              <li><b className="text-[var(--text-primary)]">4. Verify</b> — preserve the durable trail.</li>
+            </ol>
+          </div>
+        </aside>
+      </div>
     </div>
-  </div>;
+  );
 }

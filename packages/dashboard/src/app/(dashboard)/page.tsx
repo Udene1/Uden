@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Activity, ArrowRight, Bot, CheckCircle2, CircleDot, Clock3, DollarSign, Loader2, Plus, ShieldCheck, Sparkles, Workflow, Zap } from 'lucide-react';
-import { api, Task, TaskMode, UsageSummary } from '@/lib/api';
+import { api, Task, TaskMode, TaskStatus, UsageSummary } from '@/lib/api';
 import { getGraph, getGraphs } from '@/lib/graph-api';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { CardSkeleton, TableSkeleton } from '@/components/ui/LoadingSkeleton';
@@ -17,6 +17,25 @@ const starters = [
   'Analyze this project and identify the highest-risk issues.',
   'Turn these requirements into an implementation plan.',
 ];
+
+const graphStatusToTaskStatus = (status?: string): TaskStatus => {
+  switch (status) {
+    case 'completed': return 'completed';
+    case 'failed': return 'failed';
+    case 'awaiting-approval': return 'awaiting-approval';
+    case 'approved': return 'approved';
+    case 'rejected': return 'rejected';
+    case 'running':
+    case 'executing':
+    case 'processing': return 'processing';
+    case 'routing': return 'routing';
+    case 'quality-check': return 'quality-check';
+    case 'escalating': return 'escalating';
+    case 'ready':
+    case 'pending': return 'pending';
+    default: return 'pending';
+  }
+};
 
 export default function DashboardOverview() {
   const { data: session } = useSession();
@@ -96,7 +115,7 @@ export default function DashboardOverview() {
     <section className="grid lg:grid-cols-[1.45fr_1fr] gap-5">
       <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 md:p-6">
         <div className="flex items-start justify-between gap-4 mb-5"><div><h2 className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2"><Workflow size={17} /> Latest execution</h2><p className="text-xs text-[var(--text-muted)] mt-1">The most recent durable graph recorded by Uden.</p></div><Link href="/graphs" className="text-xs text-[var(--accent-primary)] flex items-center gap-1">Open graph <ArrowRight size={13} /></Link></div>
-        {loading ? <div className="space-y-3"><CardSkeleton /><CardSkeleton /></div> : latestGraph ? <div className="space-y-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium text-[var(--text-primary)] truncate">{latestGraph.goal || latestGraph.id}</p><p className="font-mono text-[10px] text-[var(--text-muted)] mt-1 truncate">{latestGraph.id}</p></div><StatusBadge status={latestGraph.status || 'pending'} /></div><div className="grid grid-cols-3 gap-2"><Metric label="Nodes" value={String(graphStats.nodes)} /><Metric label="Completed" value={String(graphStats.completed)} /><Metric label="Running" value={String(graphStats.running)} /></div><div className="space-y-2">{(latestGraph.nodes || []).slice(0, 5).map((node, index) => <div key={node.id} className="flex items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2.5"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] text-[10px] text-[var(--text-muted)]">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs text-[var(--text-secondary)]">{node.title}</span><StatusBadge status={node.status} /></div>)}</div></div> : <div className="py-10 text-center text-sm text-[var(--text-secondary)]"><Workflow className="mx-auto mb-3 opacity-50" /><p>No execution graph has been recorded yet.</p><Link href="/tasks/new" className="btn btn-primary inline-flex mt-4">Start your first work</Link></div>}
+        {loading ? <div className="space-y-3"><CardSkeleton /><CardSkeleton /></div> : latestGraph ? <div className="space-y-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium text-[var(--text-primary)] truncate">{latestGraph.goal || latestGraph.id}</p><p className="font-mono text-[10px] text-[var(--text-muted)] mt-1 truncate">{latestGraph.id}</p></div><StatusBadge status={graphStatusToTaskStatus(latestGraph.status)} /></div><div className="grid grid-cols-3 gap-2"><Metric label="Nodes" value={String(graphStats.nodes)} /><Metric label="Completed" value={String(graphStats.completed)} /><Metric label="Running" value={String(graphStats.running)} /></div><div className="space-y-2">{(latestGraph.nodes || []).slice(0, 5).map((node, index) => <div key={node.id} className="flex items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2.5"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] text-[10px] text-[var(--text-muted)]">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs text-[var(--text-secondary)]">{node.title}</span><StatusBadge status={graphStatusToTaskStatus(node.status)} /></div>)}</div></div> : <div className="py-10 text-center text-sm text-[var(--text-secondary)]"><Workflow className="mx-auto mb-3 opacity-50" /><p>No execution graph has been recorded yet.</p><Link href="/tasks/new" className="btn btn-primary inline-flex mt-4">Start your first work</Link></div>}
       </div>
 
       <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 md:p-6"><div className="flex items-start justify-between mb-5"><div><h2 className="text-base font-semibold text-[var(--text-primary)]">Usage</h2><p className="text-xs text-[var(--text-muted)] mt-1">Recorded workspace consumption.</p></div><Link href="/analytics" className="text-xs text-[var(--accent-primary)]">Details</Link></div>{loading ? <CardSkeleton /> : usage ? <div className="space-y-5"><div><div className="flex justify-between text-xs mb-2"><span className="text-[var(--text-secondary)]">Monthly budget</span><span className="text-[var(--text-primary)]">{usage.budgetUsedPercent.toFixed(1)}%</span></div><div className="h-2 rounded-full bg-[var(--bg-secondary)] overflow-hidden"><div className="h-full bg-[var(--accent-primary)] rounded-full" style={{ width: `${Math.min(100, Math.max(0, usage.budgetUsedPercent))}%` }} /></div></div><div className="grid grid-cols-2 gap-3"><Metric label="Input tokens" value={formatNumber(usage.totalTokensIn)} /><Metric label="Output tokens" value={formatNumber(usage.totalTokensOut)} /><Metric label="Escalations" value={formatNumber(usage.escalationCount)} /><Metric label="Routing savings" value={formatCurrency(usage.savingsEstimateCents)} /></div></div> : <p className="text-sm text-[var(--text-secondary)]">No usage data recorded yet.</p>}</div>

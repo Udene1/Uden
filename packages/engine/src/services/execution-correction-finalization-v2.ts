@@ -1,6 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 
-type ResolutionRow={id:string;tenant_id:string;graph_id:string;contradiction_id:string;validation_id:string};
+type ResolutionRow={id:string;tenant_id:string;graph_id:string;contradiction_id:string;validation_id:string;resolution_reason:string};
 
 export async function resolveValidatedExecutionContradiction(db:D1Database,input:{tenantId:string;graphId:string;contradictionId:string;validationId:string;resolutionReason:string;resolutionRequestId?:string}):Promise<void>{
   const reason=input.resolutionReason.trim();
@@ -8,13 +8,14 @@ export async function resolveValidatedExecutionContradiction(db:D1Database,input
   const requestId=(input.resolutionRequestId??crypto.randomUUID()).trim();
   if(!requestId||requestId.length>512)throw new Error('Invalid contradiction resolution request id');
 
-  const existing=await db.prepare(`SELECT id,tenant_id,graph_id,contradiction_id,validation_id
+  const existing=await db.prepare(`SELECT id,tenant_id,graph_id,contradiction_id,validation_id,resolution_reason
     FROM execution_contradiction_resolutions
     WHERE tenant_id=? AND resolution_request_id=?`).bind(input.tenantId,requestId).first<ResolutionRow>();
   if(existing){
     if(existing.graph_id!==input.graphId||existing.contradiction_id!==input.contradictionId||existing.validation_id!==input.validationId){
       throw new Error('Contradiction resolution request id was already used for a different resolution');
     }
+    if(existing.resolution_reason!==reason)throw new Error('Contradiction resolution request id was already used with a different resolution reason');
     return;
   }
 
@@ -43,10 +44,13 @@ export async function resolveValidatedExecutionContradiction(db:D1Database,input
     const resolved=(result[1] as {meta?:{changes?:number}})?.meta?.changes??0;
     if(inserted!==1||resolved!==1)throw new Error('Contradiction resolution rejected: validation is stale, non-independent, inactive, incomplete, or already resolved');
   }catch(error){
-    const retry=await db.prepare(`SELECT id,tenant_id,graph_id,contradiction_id,validation_id
+    const retry=await db.prepare(`SELECT id,tenant_id,graph_id,contradiction_id,validation_id,resolution_reason
       FROM execution_contradiction_resolutions
       WHERE tenant_id=? AND resolution_request_id=?`).bind(input.tenantId,requestId).first<ResolutionRow>();
-    if(retry&&retry.graph_id===input.graphId&&retry.contradiction_id===input.contradictionId&&retry.validation_id===input.validationId)return;
+    if(retry&&retry.graph_id===input.graphId&&retry.contradiction_id===input.contradictionId&&retry.validation_id===input.validationId){
+      if(retry.resolution_reason!==reason)throw new Error('Contradiction resolution request id was already used with a different resolution reason');
+      return;
+    }
     throw error;
   }
 }

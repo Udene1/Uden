@@ -1,82 +1,18 @@
 'use client';
-
 import { useEffect, useState } from 'react';
-import { Key, Shield, Save, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Key, Shield, Save, RefreshCw, CheckCircle2, AlertTriangle, UserRound, LockKeyhole } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { api, QualityPreference, TaskMode, Tenant } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-
-const strategies: Array<{ id: QualityPreference; title: string; description: string }> = [
-  { id: 'cost-optimized', title: 'Cost optimized', description: 'Prefer the least expensive capable route and escalate when quality requires it.' },
-  { id: 'balanced', title: 'Balanced', description: 'Balance cost and quality using Uden’s routing policy.' },
-  { id: 'quality-first', title: 'Quality first', description: 'Favor stronger models when the work demands higher confidence.' },
-];
-
-export default function SettingsPage() {
-  const { data: session } = useSession();
-  const apiKey = (session as any)?.apiKey as string | undefined;
-  const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [strategy, setStrategy] = useState<QualityPreference>('balanced');
-  const [mode, setMode] = useState<TaskMode>('permissionless');
-  const [budget, setBudget] = useState('100');
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [rotating, setRotating] = useState(false);
-  const [newKey, setNewKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (!apiKey) { setLoading(false); return; }
-    api.getCurrentTenant(apiKey).then(({ tenant: current }) => {
-      setTenant(current); setName(current.name); setStrategy(current.qualityPreference); setMode(current.defaultMode); setBudget(String(current.monthlyBudgetCents / 100));
-    }).catch((err) => setError(err instanceof Error ? err.message : 'Unable to load workspace settings.')).finally(() => setLoading(false));
-  }, [apiKey]);
-
-  async function save() {
-    if (!apiKey || saving) return;
-    const monthlyBudgetCents = Math.round(Number(budget) * 100);
-    if (!Number.isFinite(monthlyBudgetCents) || monthlyBudgetCents < 0) { setError('Enter a valid monthly budget.'); return; }
-    setSaving(true); setError(null); setSaved(false);
-    try {
-      await api.updateTenant({ name: name.trim() || tenant?.name, qualityPreference: strategy, defaultMode: mode, monthlyBudgetCents }, apiKey);
-      const refreshed = await api.getCurrentTenant(apiKey); setTenant(refreshed.tenant); setSaved(true);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save workspace settings.'); }
-    finally { setSaving(false); }
-  }
-
-  async function rotateKey() {
-    if (!apiKey || rotating) return;
-    if (!window.confirm('Rotate the workspace API key? The current key will stop working immediately.')) return;
-    setRotating(true); setError(null); setNewKey(null);
-    try { const result = await api.rotateApiKey(apiKey); setNewKey(result.api_key); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Unable to rotate the API key.'); }
-    finally { setRotating(false); }
-  }
-
-  if (loading) return <div className="max-w-4xl space-y-4"><div className="glass-card h-24 skeleton" /><div className="glass-card h-72 skeleton" /></div>;
-
-  return (
-    <div className="max-w-4xl space-y-7 pb-10">
-      <header><p className="text-sm text-[var(--accent-primary)] flex items-center gap-2"><Shield size={15}/> Workspace configuration</p><h1 className="text-3xl font-semibold text-[var(--text-primary)] mt-2">Settings</h1><p className="text-sm text-[var(--text-secondary)] mt-1">These controls are backed by your workspace configuration. Nothing here is simulated.</p></header>
-      {error && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300">{error}</div>}
-      {saved && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 size={16}/> Workspace settings saved.</div>}
-
-      <section className="glass-card p-5 md:p-6 border border-[var(--border-color)]">
-        <div className="mb-6"><h2 className="text-lg font-semibold text-[var(--text-primary)]">Workspace</h2><p className="text-sm text-[var(--text-secondary)] mt-1">Identity and default execution policy.</p></div>
-        <div className="input-group"><label htmlFor="workspace-name" className="input-label">Workspace name</label><input id="workspace-name" value={name} onChange={(e)=>setName(e.target.value)} className="input-field max-w-xl" /></div>
-        <div className="space-y-3 mt-6"><label className="text-sm font-medium text-[var(--text-primary)]">Routing preference</label><div className="grid md:grid-cols-3 gap-3">{strategies.map((item)=><button key={item.id} type="button" onClick={()=>setStrategy(item.id)} className={`text-left rounded-xl border p-4 transition-colors ${strategy===item.id?'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10':'border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-[var(--border-highlight)]'}`}><div className="flex items-start justify-between gap-3"><span className="font-semibold text-[var(--text-primary)]">{item.title}</span>{strategy===item.id&&<CheckCircle2 size={16} className="text-[var(--accent-primary)] shrink-0"/>}</div><p className="text-xs text-[var(--text-secondary)] mt-2 leading-5">{item.description}</p></button>)}</div></div>
-        <div className="grid sm:grid-cols-2 gap-4 mt-6"><div className="input-group"><label htmlFor="monthly-budget" className="input-label">Monthly budget (USD)</label><input id="monthly-budget" type="number" min="0" step="0.01" value={budget} onChange={(e)=>setBudget(e.target.value)} className="input-field" /></div><div className="input-group"><label htmlFor="default-mode" className="input-label">Default execution mode</label><select id="default-mode" value={mode} onChange={(e)=>setMode(e.target.value as TaskMode)} className="input-field"><option value="permissionless">Permissionless</option><option value="permission-based">Ask before high-risk actions</option></select></div></div>
-        <div className="mt-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 text-sm"><div className="flex justify-between gap-4"><span className="text-[var(--text-secondary)]">Configured budget</span><span className="font-medium text-[var(--text-primary)]">{formatCurrency(Number(budget)*100 || 0)}/month</span></div><p className="text-xs text-[var(--text-muted)] mt-2">Budget enforcement and high-risk approval happen in the execution engine, not only in this UI.</p></div>
-        <div className="flex justify-end mt-6"><button type="button" onClick={()=>void save()} disabled={!apiKey||saving} className="btn btn-primary"><Save size={16}/>{saving?'Saving…':'Save settings'}</button></div>
-      </section>
-
-      <section className="glass-card p-5 md:p-6 border border-[var(--border-color)]">
-        <div className="flex items-start gap-3 mb-5"><Key size={20} className="text-[var(--accent-primary)] mt-0.5"/><div><h2 className="text-lg font-semibold text-[var(--text-primary)]">Workspace API key</h2><p className="text-sm text-[var(--text-secondary)] mt-1">Uden stores the key server-side as a hash. The dashboard never displays a fake provider key.</p></div></div>
-        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><p className="text-sm font-medium text-[var(--text-primary)]">Current credential</p><p className="text-xs text-[var(--text-muted)] mt-1">Hidden after creation. Rotate only when you are ready to replace the current credential.</p></div><button type="button" onClick={()=>void rotateKey()} disabled={!apiKey||rotating} className="btn btn-secondary shrink-0"><RefreshCw size={15} className={rotating?'animate-spin':''}/>{rotating?'Rotating…':'Rotate key'}</button></div></div>
-        {newKey && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"><div className="flex items-center gap-2 text-sm font-medium text-amber-200"><AlertTriangle size={16}/> New key — save it now</div><code className="block mt-3 rounded-lg bg-[var(--bg-primary)] p-3 text-xs break-all text-[var(--text-primary)]">{newKey}</code><button type="button" onClick={()=>navigator.clipboard.writeText(newKey)} className="btn btn-secondary mt-3 text-xs">Copy new key</button></div>}
-      </section>
-    </div>
-  );
+const strategies:Array<{id:QualityPreference;title:string;description:string}>=[{id:'cost-optimized',title:'Cost optimized',description:'Prefer the least expensive capable route and escalate when quality requires it.'},{id:'balanced',title:'Balanced',description:'Balance cost and quality using Uden’s routing policy.'},{id:'quality-first',title:'Quality first',description:'Favor stronger models when the work demands higher confidence.'}];
+export default function SettingsPage(){const{data:session}=useSession();const apiKey=(session as any)?.apiKey as string|undefined;const[tenant,setTenant]=useState<Tenant|null>(null);const[strategy,setStrategy]=useState<QualityPreference>('balanced');const[mode,setMode]=useState<TaskMode>('permissionless');const[budget,setBudget]=useState('100');const[name,setName]=useState('');const[loading,setLoading]=useState(true);const[saving,setSaving]=useState(false);const[rotating,setRotating]=useState(false);const[newKey,setNewKey]=useState<string|null>(null);const[error,setError]=useState<string|null>(null);const[saved,setSaved]=useState(false);const identity=session?.user?.email||session?.user?.name||'Workspace member';
+useEffect(()=>{if(!apiKey){setLoading(false);return;}api.getCurrentTenant(apiKey).then(({tenant:current})=>{setTenant(current);setName(current.name);setStrategy(current.qualityPreference);setMode(current.defaultMode);setBudget(String(current.monthlyBudgetCents/100));}).catch(err=>setError(err instanceof Error?err.message:'Unable to load workspace settings.')).finally(()=>setLoading(false));},[apiKey]);
+async function save(){if(!apiKey||saving)return;const monthlyBudgetCents=Math.round(Number(budget)*100);if(!Number.isFinite(monthlyBudgetCents)||monthlyBudgetCents<0){setError('Enter a valid monthly budget.');return;}setSaving(true);setError(null);setSaved(false);try{await api.updateTenant({name:name.trim()||tenant?.name,qualityPreference:strategy,defaultMode:mode,monthlyBudgetCents},apiKey);const refreshed=await api.getCurrentTenant(apiKey);setTenant(refreshed.tenant);setSaved(true);}catch(err){setError(err instanceof Error?err.message:'Unable to save workspace settings.');}finally{setSaving(false);}}
+async function rotateKey(){if(!apiKey||rotating)return;if(!window.confirm('Rotate the workspace API key? The current key will stop working immediately.'))return;setRotating(true);setError(null);setNewKey(null);try{const result=await api.rotateApiKey(apiKey);setNewKey(result.api_key);}catch(err){setError(err instanceof Error?err.message:'Unable to rotate the API key.');}finally{setRotating(false);}}
+if(loading)return <div className="max-w-4xl space-y-4"><div className="glass-card h-24 skeleton"/><div className="glass-card h-72 skeleton"/></div>;
+return <div className="max-w-4xl space-y-7 pb-28 md:pb-10"><header><p className="text-sm text-[var(--accent-primary)] flex items-center gap-2"><Shield size={15}/> Workspace configuration</p><h1 className="text-3xl font-semibold text-[var(--text-primary)] mt-2">Settings</h1><p className="text-sm text-[var(--text-secondary)] mt-1">Account identity, workspace policy, budget, and credentials. These controls are backed by the workspace API.</p></header>{error&&<div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300">{error}</div>}{saved&&<div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 size={16}/> Workspace settings saved.</div>}
+<section className="glass-card p-5 md:p-6 border border-[var(--border-color)]"><div className="flex items-start gap-3"><div className="h-10 w-10 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] flex items-center justify-center"><UserRound size={18} className="text-[var(--accent-primary)]"/></div><div><h2 className="text-lg font-semibold text-[var(--text-primary)]">Account</h2><p className="text-sm text-[var(--text-secondary)] mt-1">The authenticated identity used for this dashboard session.</p><p className="mt-3 text-sm font-medium text-[var(--text-primary)]">{identity}</p><p className="text-xs text-[var(--text-muted)] mt-1">Authentication and authorization remain enforced by the application backend.</p></div></div></section>
+<section className="glass-card p-5 md:p-6 border border-[var(--border-color)]"><div className="mb-6"><h2 className="text-lg font-semibold text-[var(--text-primary)]">Workspace</h2><p className="text-sm text-[var(--text-secondary)] mt-1">Identity and default execution policy.</p></div><div className="input-group"><label htmlFor="workspace-name" className="input-label">Workspace name</label><input id="workspace-name" value={name} onChange={e=>setName(e.target.value)} className="input-field max-w-xl"/></div><div className="space-y-3 mt-6"><label className="text-sm font-medium text-[var(--text-primary)]">Routing preference</label><div className="grid md:grid-cols-3 gap-3">{strategies.map(item=><button key={item.id} type="button" onClick={()=>setStrategy(item.id)} className={`text-left rounded-xl border p-4 transition-colors ${strategy===item.id?'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10':'border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-[var(--border-highlight)]'}`}><div className="flex items-start justify-between gap-3"><span className="font-semibold text-[var(--text-primary)]">{item.title}</span>{strategy===item.id&&<CheckCircle2 size={16} className="text-[var(--accent-primary)] shrink-0"/>}</div><p className="text-xs text-[var(--text-secondary)] mt-2 leading-5">{item.description}</p></button>)}</div></div><div className="grid sm:grid-cols-2 gap-4 mt-6"><div className="input-group"><label htmlFor="monthly-budget" className="input-label">Monthly budget (USD)</label><input id="monthly-budget" type="number" min="0" step="0.01" value={budget} onChange={e=>setBudget(e.target.value)} className="input-field"/></div><div className="input-group"><label htmlFor="default-mode" className="input-label">Default execution mode</label><select id="default-mode" value={mode} onChange={e=>setMode(e.target.value as TaskMode)} className="input-field"><option value="permissionless">Permissionless</option><option value="permission-based">Ask before high-risk actions</option></select></div></div><div className="mt-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 text-sm"><div className="flex justify-between gap-4"><span className="text-[var(--text-secondary)]">Configured budget</span><span className="font-medium text-[var(--text-primary)]">{formatCurrency(Number(budget)*100||0)}/month</span></div><p className="text-xs text-[var(--text-muted)] mt-2">Budget enforcement and high-risk approval happen in the execution engine, not only in this UI.</p></div><div className="flex justify-end mt-6"><button type="button" onClick={()=>void save()} disabled={!apiKey||saving} className="btn btn-primary"><Save size={16}/>{saving?'Saving…':'Save settings'}</button></div></section>
+<section className="glass-card p-5 md:p-6 border border-[var(--border-color)]"><div className="flex items-start gap-3 mb-5"><Key size={20} className="text-[var(--accent-primary)] mt-0.5"/><div><h2 className="text-lg font-semibold text-[var(--text-primary)]">Workspace API key</h2><p className="text-sm text-[var(--text-secondary)] mt-1">The credential is hidden after creation. Rotation is an immediate security boundary.</p></div></div><div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><p className="text-sm font-medium text-[var(--text-primary)]">Current credential</p><p className="text-xs text-[var(--text-muted)] mt-1">Rotate only when you are ready to replace the current credential.</p></div><button type="button" onClick={()=>void rotateKey()} disabled={!apiKey||rotating} className="btn btn-secondary shrink-0"><RefreshCw size={15} className={rotating?'animate-spin':''}/>{rotating?'Rotating…':'Rotate key'}</button></div></div>{newKey&&<div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"><div className="flex items-center gap-2 text-sm font-medium text-amber-200"><AlertTriangle size={16}/> New key — save it now</div><code className="block mt-3 rounded-lg bg-[var(--bg-primary)] p-3 text-xs break-all text-[var(--text-primary)]">{newKey}</code><button type="button" onClick={()=>navigator.clipboard.writeText(newKey)} className="btn btn-secondary mt-3 text-xs">Copy new key</button></div>}</section>
+<section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4"><div className="flex items-start gap-3"><LockKeyhole size={17} className="text-[var(--accent-primary)] mt-0.5"/><div><p className="text-sm font-medium text-[var(--text-primary)]">Policy reminder</p><p className="text-xs text-[var(--text-secondary)] mt-1 leading-5">UI preferences do not weaken backend capability enforcement, approval requirements, budget checks, or execution fencing.</p></div></div></section></div>;
 }

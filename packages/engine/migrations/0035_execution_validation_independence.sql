@@ -27,3 +27,15 @@ CREATE TABLE IF NOT EXISTS execution_contradiction_resolutions (
   FOREIGN KEY (corrective_action_id) REFERENCES execution_corrective_actions(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_execution_contradiction_resolutions_graph ON execution_contradiction_resolutions(tenant_id,graph_id,created_at DESC);
+
+-- No code path may directly mark a contradiction resolved. A durable resolution
+-- audit record must exist first, which prevents the legacy resolver from bypassing
+-- validation and also protects the invariant if another caller is introduced.
+DROP TRIGGER IF EXISTS execution_contradiction_resolution_guard;
+CREATE TRIGGER execution_contradiction_resolution_guard
+BEFORE UPDATE OF status ON execution_contradictions
+WHEN NEW.status='resolved' AND OLD.status='open'
+  AND NOT EXISTS (SELECT 1 FROM execution_contradiction_resolutions r WHERE r.contradiction_id=OLD.id)
+BEGIN
+  SELECT RAISE(ABORT, 'Contradiction resolution requires audited independent validation');
+END;

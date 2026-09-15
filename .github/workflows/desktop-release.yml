@@ -78,7 +78,7 @@ jobs:
 
           mac_app="$(find "$macos_universal" -type d -name '*.app' -print -quit)"
           test -n "$mac_app"
-          ditto -c -k --sequesterRsrc --keepParent "$mac_app" "$dist/uden-${version}-macos-universal.app.zip"
+          (cd "$(dirname "$mac_app")" && zip -r -y "$dist/uden-${version}-macos-universal.app.zip" "$(basename "$mac_app")")
           copy_one "$(find_one "$macos_universal" '*.dmg')" "uden-${version}-macos-universal.dmg"
 
           copy_one "$(find_one "$linux_x64" '*.AppImage')" "uden-${version}-linux-x64.AppImage"
@@ -87,8 +87,6 @@ jobs:
           copy_one "$(find_one "$linux_arm64" '*.deb')" "uden-${version}-linux-arm64.deb"
 
           copy_one "$(find_one "$store" '*-setup.exe')" "uden-${version}-windows-x64-store-setup.exe"
-
-          sha256sum "$dist"/* > "$dist/SHA256SUMS.txt"
 
           RELEASE_ASSET_DIR="$dist" RELEASE_TAG="$RELEASE_TAG" RELEASE_SHA="$RELEASE_SHA" node <<'NODE'
           const fs = require('node:fs');
@@ -112,7 +110,7 @@ jobs:
             throw new Error(`Cannot classify release asset: ${name}`);
           };
 
-          const files = fs.readdirSync(dir).filter((name) => name !== 'SHA256SUMS.txt').sort();
+          const files = fs.readdirSync(dir).sort();
           const artifacts = files.map((filename) => {
             const [platform, arch] = classify(filename);
             const sha256 = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, filename))).digest('hex');
@@ -144,14 +142,13 @@ jobs:
           fs.writeFileSync(path.join(dir, `uden-${version}-release-manifest.json`), JSON.stringify(manifest, null, 2) + '\n');
           NODE
 
-          sha256sum "$dist"/* > "$dist/SHA256SUMS.txt"
+          find "$dist" -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > "$dist/SHA256SUMS.txt"
 
       - name: Verify release manifest before publication
         env:
           RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          version="${RELEASE_TAG#v}"
           node <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -159,7 +156,7 @@ jobs:
           const tag = process.env.RELEASE_TAG;
           const manifest = JSON.parse(fs.readFileSync(path.join(dir, `uden-${tag.slice(1)}-release-manifest.json`), 'utf8'));
           if (manifest.tag !== tag) throw new Error('Manifest tag mismatch');
-          if (manifest.commit !== process.env.GITHUB_SHA && manifest.commit !== '${{ github.event.workflow_run.head_sha }}') throw new Error('Manifest commit mismatch');
+          if (manifest.commit !== '${{ github.event.workflow_run.head_sha }}') throw new Error('Manifest commit mismatch');
           if (!manifest.artifacts.length) throw new Error('Manifest contains no artifacts');
           if (new Set(manifest.artifacts.map((a) => a.filename)).size !== manifest.artifacts.length) throw new Error('Manifest contains duplicate filenames');
           console.log(JSON.stringify(manifest, null, 2));
@@ -176,15 +173,13 @@ jobs:
             echo "Release $RELEASE_TAG already exists; refusing to replace it."
             exit 1
           fi
-          version="${RELEASE_TAG#v}"
           prerelease=false
           if [[ "$RELEASE_TAG" == *-beta.* || "$RELEASE_TAG" == *-nightly.* ]]; then prerelease=true; fi
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/release-assets/* \
-            --verify-tag \
-            --target "$RELEASE_SHA" \
-            --generate-notes \
-            --latest="$([[ "$prerelease" == true ]] && echo false || echo true)" \
-            $([[ "$prerelease" == true ]] && echo --prerelease)
+          if [[ "$prerelease" == true ]]; then
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/release-assets/* --verify-tag --target "$RELEASE_SHA" --generate-notes --latest=false --prerelease
+          else
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/release-assets/* --verify-tag --target "$RELEASE_SHA" --generate-notes --latest=true
+          fi
 
       - name: Verify published release digests
         env:
@@ -192,9 +187,8 @@ jobs:
           RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          version="${RELEASE_TAG#v}"
           gh release view "$RELEASE_TAG" --json tagName,targetCommitish,isPrerelease,assets > "$RUNNER_TEMP/release.json"
-          RELEASE_ASSET_DIR="$RUNNER_TEMP/release-assets" RELEASE_TAG="$RELEASE_TAG" RELEASE_JSON="$RUNNER_TEMP/release.json" node <<'NODE'
+          RELEASE_ASSET_DIR="$RUNNER_TEMP/release-assets" RELEASE_JSON="$RUNNER_TEMP/release.json" node <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
           const crypto = require('node:crypto');

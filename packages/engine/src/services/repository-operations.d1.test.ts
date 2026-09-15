@@ -31,6 +31,13 @@ describe.sequential('repository operation durability', () => {
     expect(second.idempotencyKey).toBe('repo-op-key-1');
   });
 
+  it('rejects reuse of an idempotency key for different provider intent', async () => {
+    const input = { id: 'repo-op-intent-1', ...graph, repository: { provider: 'github' as const, owner: 'Udene1', repo: 'Uden' }, operation: 'commit_files' as const, expectedHeadSha: 'head-a', idempotencyKey: 'repo-op-intent-key' };
+    await authorizeRepositoryOperation(db, input);
+    await expect(authorizeRepositoryOperation(db, { ...input, id: 'repo-op-intent-2', repository: { provider: 'origin' as const, owner: 'team', repo: 'service' } })).rejects.toThrow(/different intent/);
+    await expect(authorizeRepositoryOperation(db, { ...input, id: 'repo-op-intent-3', expectedHeadSha: 'head-b' })).rejects.toThrow(/different intent/);
+  });
+
   it('marks ambiguous remote outcomes unknown and refuses blind replay', async () => {
     const input = { id: 'repo-op-2', ...graph, repository: { provider: 'origin' as const, owner: 'team', repo: 'service' }, operation: 'merge_pull_request' as const, expectedHeadSha: '1234567890ab', idempotencyKey: 'repo-op-key-2' };
     const authorized = await authorizeRepositoryOperation(db, input);

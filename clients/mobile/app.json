@@ -5,6 +5,9 @@
     "version": "0.1.2",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "plugins": [
+      "./plugins/with-android-kotlin-version"
+    ],
     "android": {
       "package": "icu.uden.app",
       "versionCode": 4

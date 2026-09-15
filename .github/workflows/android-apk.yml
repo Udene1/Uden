@@ -27,13 +27,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
+      - name: Install root dependencies
         working-directory: .
         run: npm ci
 
+      - name: Install mobile dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify Expo project
+        run: npx expo config --type public
+
       - name: Generate Android project
-        run: npx expo prebuild --platform android --non-interactive
+        run: npx expo prebuild --platform android --non-interactive --clean
 
       - name: Build debug APK
         working-directory: clients/mobile/android

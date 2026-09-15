@@ -19,26 +19,28 @@ describe.sequential('runtime fencing hardening', () => {
     await applyCurrentD1Schema(db, engineRoot);
     await db.prepare(`INSERT INTO tenants (id,name,email,api_key_hash,monthly_budget_cents) VALUES (?,?,?,?,?)`)
       .bind('fence-hardening-tenant', 'Fence hardening', 'fence-hardening@example.test', 'fence-hardening-hash', 100).run();
-    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`)
-      .bind('fence-hardening-root', 'fence-hardening-tenant', 'fence hardening', 'processing').run();
   });
 
   afterAll(async () => { await dispose?.(); });
 
   async function createExecution() {
+    const executionId = crypto.randomUUID();
+    const rootTaskId = `fence-hardening-root-${executionId}`;
+    await db.prepare(`INSERT INTO tasks (id,tenant_id,prompt,status) VALUES (?,?,?,?)`)
+      .bind(rootTaskId, 'fence-hardening-tenant', 'fence hardening', 'processing').run();
     await registerExecutionRuntime(db, 'fence-hardening-tenant', {
-      id: 'fence-hardening-runtime', tenantId: 'fence-hardening-tenant', kind: 'desktop_local', state: 'online',
+      id: `fence-hardening-runtime-${executionId}`, tenantId: 'fence-hardening-tenant', kind: 'desktop_local', state: 'online',
       capabilities: ['command.exec'], lastHeartbeatAt: new Date().toISOString(),
     });
     const graph: TaskGraph = {
-      id: `fence-hardening-${crypto.randomUUID()}`,
-      rootTaskId: 'fence-hardening-root', goal: 'fence hardening', createdAt: new Date().toISOString(),
-      nodes: [{ id: 'node', title: 'Node', prompt: 'execute', domain: 'general', complexity: 1, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [] }],
+      id: `fence-hardening-${executionId}`,
+      rootTaskId, goal: 'fence hardening', createdAt: new Date().toISOString(),
+      nodes: [{ id: `node-${executionId}`, title: 'Node', prompt: 'execute', domain: 'general', complexity: 1, expectedFormat: 'text', recommendedTier: 1, dependencies: [], contextFrom: [], status: 'ready', attemptedModels: [] }],
     };
     await persistGraph(db, 'fence-hardening-tenant', graph);
     const version = await acquireGraphExecutionLease(db, 'fence-hardening-tenant', graph.id, `worker-${graph.id}`);
     const request = {
-      runtimeId: 'fence-hardening-runtime', graphId: graph.id, nodeId: 'node', attemptId: `attempt-${graph.id}`,
+      runtimeId: `fence-hardening-runtime-${executionId}`, graphId: graph.id, nodeId: graph.nodes[0].id, attemptId: `attempt-${graph.id}`,
       executionOwner: `worker-${graph.id}`, executionVersion: version!, leaseExpiresAt: new Date(Date.now() + 60000).toISOString(),
       capability: 'command.exec' as const, command: 'echo', args: ['hardening'],
     };
@@ -78,12 +80,13 @@ describe.sequential('runtime fencing hardening', () => {
 
   it('makes terminal graph attempts immutable while allowing the running-to-terminal transition', async () => {
     const { graph } = await createExecution();
+    const nodeId = graph.nodes[0].id;
     await db.prepare(`INSERT INTO task_graph_attempts (id,graph_id,node_id,tenant_id,attempt_number,model,status,external_outcome,idempotency_key,started_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`)
-      .bind(`attempt-record-${graph.id}`, graph.id, 'node', 'fence-hardening-tenant', 1, 'test-model', 'running', 'not_started', `idem-${graph.id}`).run();
-    await db.prepare(`UPDATE task_graph_attempts SET status='completed',external_outcome='completed',completed_at=CURRENT_TIMESTAMP WHERE graph_id=? AND node_id='node' AND attempt_number=1`)
-      .bind(graph.id).run();
-    await expect(db.prepare(`UPDATE task_graph_attempts SET status='failed',external_outcome='unknown' WHERE graph_id=? AND node_id='node' AND attempt_number=1`)
-      .bind(graph.id).run())
+      .bind(`attempt-record-${graph.id}`, graph.id, nodeId, 'fence-hardening-tenant', 1, 'test-model', 'running', 'not_started', `idem-${graph.id}`).run();
+    await db.prepare(`UPDATE task_graph_attempts SET status='completed',external_outcome='completed',completed_at=CURRENT_TIMESTAMP WHERE graph_id=? AND node_id=? AND attempt_number=1`)
+      .bind(graph.id, nodeId).run();
+    await expect(db.prepare(`UPDATE task_graph_attempts SET status='failed',external_outcome='unknown' WHERE graph_id=? AND node_id=? AND attempt_number=1`)
+      .bind(graph.id, nodeId).run())
       .rejects.toThrow('Terminal graph attempt history is immutable');
   });
 });

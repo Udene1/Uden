@@ -41,8 +41,13 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          root = Path('android')
-          files = list(root.rglob('*.gradle')) + list(root.rglob('*.gradle.kts')) + list(root.rglob('*.properties'))
+          roots = [Path('android'), Path('node_modules/expo-modules-core/android')]
+          files = []
+          for root in roots:
+              if root.exists():
+                  files.extend(root.rglob('*.gradle'))
+                  files.extend(root.rglob('*.gradle.kts'))
+                  files.extend(root.rglob('*.properties'))
           changed = []
           for path in files:
               text = path.read_text()
@@ -51,12 +56,15 @@ jobs:
                   path.write_text(updated)
                   changed.append(str(path))
           if not changed:
-              raise SystemExit('No generated Android Kotlin version declaration was found to align.')
+              raise SystemExit('No Kotlin 1.9.24 declaration was found to align.')
           print('Aligned Kotlin declarations:')
           for path in changed:
               print(path)
           PY
-          grep -R 'kotlin.*1\.9\.25' android --include='*.gradle' --include='*.gradle.kts' --include='*.properties' | head -20
+          echo 'Remaining Kotlin 1.9.24 references relevant to the build:'
+          grep -R '1\.9\.24' android node_modules/expo-modules-core/android --include='*.gradle' --include='*.gradle.kts' --include='*.properties' || true
+          echo 'Kotlin 1.9.25 declarations:'
+          grep -R '1\.9\.25' android node_modules/expo-modules-core/android --include='*.gradle' --include='*.gradle.kts' --include='*.properties' | head -30 || true
       - name: Build debug APK
         working-directory: clients/mobile/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace

@@ -20,4 +20,10 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(packageVers
   throw new Error(`Desktop version is not valid SemVer: ${packageVersion}`);
 }
 
+const releaseTag = process.env.RELEASE_TAG ?? '';
+if (releaseTag && releaseTag !== `v${packageVersion}`) {
+  throw new Error(`Release tag/version mismatch: tag=${releaseTag}, expected=v${packageVersion}.`);
+}
+
 console.log(`Desktop release version: ${packageVersion}`);
+if (releaseTag) console.log(`Release tag: ${releaseTag}`);

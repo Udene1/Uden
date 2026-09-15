@@ -26,26 +26,31 @@ jobs:
             arch: x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
             artifact: uden-windows-x64
           - platform: windows
             arch: arm64
             runner: windows-latest
             target: aarch64-pc-windows-msvc
+            rust_targets: aarch64-pc-windows-msvc
             artifact: uden-windows-arm64
           - platform: macos
             arch: universal
             runner: macos-latest
             target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
             artifact: uden-macos-universal
           - platform: linux
             arch: x64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
             artifact: uden-linux-x64
           - platform: linux
             arch: arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            rust_targets: aarch64-unknown-linux-gnu
             artifact: uden-linux-arm64
     defaults:
       run:
@@ -62,7 +67,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust_targets }}
 
       - name: Install Windows ARM64 build tools
         if: matrix.platform == 'windows' && matrix.arch == 'arm64'
@@ -120,8 +125,8 @@ jobs:
           dmg="$(find "$root/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$app"
           test -n "$dmg"
-          binary="$app/Contents/MacOS/uden-desktop"
-          test -f "$binary"
+          binary="$(find "$app/Contents/MacOS" -type f -perm -111 -print -quit)"
+          test -n "$binary"
           archs="$(lipo -archs "$binary")"
           echo "macOS universal architectures: $archs"
           echo "$archs" | grep -qw arm64

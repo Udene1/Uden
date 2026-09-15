@@ -26,6 +26,11 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi", "dmg", "app", "appimage", "deb", "rpm"],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
     "publisher": "Uden Project",
     "category": "Productivity",
     "shortDescription": "Uden AI work partner"

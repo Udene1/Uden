@@ -1,6 +1,6 @@
 {
   "name": "@uden/mobile",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Uden focused mobile companion",
   "main": "node_modules/expo/AppEntry.js",

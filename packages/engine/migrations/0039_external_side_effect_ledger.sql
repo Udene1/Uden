@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS external_side_effects (
   external_operation_id TEXT,
   response_fingerprint TEXT,
   error TEXT,
+  recovery_owner TEXT,
+  recovery_version INTEGER NOT NULL DEFAULT 0,
+  recovery_lease_until DATETIME,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at DATETIME,
@@ -33,16 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_external_side_effects_external_id
 DROP TRIGGER IF EXISTS external_side_effect_identity_guard;
 CREATE TRIGGER external_side_effect_identity_guard
 BEFORE UPDATE OF tenant_id,graph_id,node_id,attempt_id,execution_owner,execution_version,provider,operation,idempotency_key,request_fingerprint ON external_side_effects
-WHEN OLD.tenant_id<>NEW.tenant_id
-  OR OLD.graph_id<>NEW.graph_id
-  OR OLD.node_id<>NEW.node_id
-  OR OLD.attempt_id<>NEW.attempt_id
-  OR OLD.execution_owner<>NEW.execution_owner
-  OR OLD.execution_version<>NEW.execution_version
-  OR OLD.provider<>NEW.provider
-  OR OLD.operation<>NEW.operation
-  OR OLD.idempotency_key<>NEW.idempotency_key
-  OR OLD.request_fingerprint<>NEW.request_fingerprint
+WHEN OLD.tenant_id<>NEW.tenant_id OR OLD.graph_id<>NEW.graph_id OR OLD.node_id<>NEW.node_id OR OLD.attempt_id<>NEW.attempt_id OR OLD.execution_owner<>NEW.execution_owner OR OLD.execution_version<>NEW.execution_version OR OLD.provider<>NEW.provider OR OLD.operation<>NEW.operation OR OLD.idempotency_key<>NEW.idempotency_key OR OLD.request_fingerprint<>NEW.request_fingerprint
 BEGIN SELECT RAISE(ABORT,'External side-effect identity is immutable'); END;
 
 DROP TRIGGER IF EXISTS external_side_effect_terminal_guard;
@@ -56,11 +50,12 @@ DROP TRIGGER IF EXISTS external_side_effect_status_guard;
 CREATE TRIGGER external_side_effect_status_guard
 BEFORE UPDATE OF status ON external_side_effects
 WHEN OLD.status<>NEW.status
- AND NOT (
-   (OLD.status='authorized' AND NEW.status IN ('in_flight','unknown','failed')) OR
-   (OLD.status='in_flight' AND NEW.status IN ('completed','failed','unknown')) OR
-   (OLD.status='unknown' AND NEW.status IN ('completed','failed','unknown','in_flight')) OR
-   (OLD.status='completed' AND NEW.status='completed') OR
-   (OLD.status='failed' AND NEW.status='failed')
- )
+ AND NOT ((OLD.status='authorized' AND NEW.status IN ('in_flight','unknown','failed')) OR (OLD.status='in_flight' AND NEW.status IN ('completed','failed','unknown')) OR (OLD.status='unknown' AND NEW.status IN ('completed','failed','unknown','in_flight')) OR (OLD.status='completed' AND NEW.status='completed') OR (OLD.status='failed' AND NEW.status='failed'))
 BEGIN SELECT RAISE(ABORT,'Illegal external side-effect status transition'); END;
+
+DROP TRIGGER IF EXISTS external_side_effect_recovery_guard;
+CREATE TRIGGER external_side_effect_recovery_guard
+BEFORE UPDATE OF recovery_owner,recovery_version,recovery_lease_until ON external_side_effects
+WHEN OLD.status IN ('completed','failed')
+ AND (COALESCE(OLD.recovery_owner,'')<>COALESCE(NEW.recovery_owner,'') OR OLD.recovery_version<>NEW.recovery_version OR COALESCE(OLD.recovery_lease_until,'')<>COALESCE(NEW.recovery_lease_until,''))
+BEGIN SELECT RAISE(ABORT,'Terminal external side-effect recovery state cannot be rewritten'); END;

@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -40,11 +40,20 @@ jobs:
         run: npx expo config --type public
 
       - name: Generate Android project
-        run: npx expo prebuild --platform android --non-interactive --clean
+        run: CI=1 npx expo prebuild --platform android --clean
+
+      - name: Align Kotlin with Compose compiler
+        run: |
+          printf '\nandroid.kotlinVersion=1.9.25\n' >> android/gradle.properties
+          grep '^android.kotlinVersion=' android/gradle.properties
 
       - name: Build debug APK
         working-directory: clients/mobile/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK output
+        working-directory: clients/mobile
+        run: test -s android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/Uden-preview.apk

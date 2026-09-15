@@ -1,0 +1,131 @@
+name: Desktop Distribution
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'clients/desktop/**'
+      - 'packages/shared/**'
+      - '.github/workflows/desktop-distribution.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/desktop/**'
+      - 'packages/shared/**'
+      - '.github/workflows/desktop-distribution.yml'
+
+jobs:
+  native:
+    name: Native ${{ matrix.os }} artifacts
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: uden-windows-installers
+          - os: macos-latest
+            artifact: uden-macos-installers
+          - os: ubuntu-latest
+            artifact: uden-linux-installers
+    defaults:
+      run:
+        working-directory: clients/desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build native installers
+        run: npm run bundle
+
+      - name: Verify Windows installers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Filter '*-setup.exe')
+          if ($files.Count -lt 1) { throw 'NSIS installer was not produced.' }
+          $msi = @(Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter '*.msi')
+          if ($msi.Count -lt 1) { throw 'MSI installer was not produced.' }
+
+      - name: Verify macOS installers
+        if: runner.os == 'macOS'
+        run: |
+          test -d src-tauri/target/release/bundle/macos/*.app
+          test -f src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Verify Linux installers
+        if: runner.os == 'Linux'
+        run: |
+          test -f src-tauri/target/release/bundle/appimage/*.AppImage
+          test -f src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload native installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            clients/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            clients/desktop/src-tauri/target/release/bundle/msi/*.msi
+            clients/desktop/src-tauri/target/release/bundle/macos/*.app
+            clients/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            clients/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            clients/desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+  microsoft-store:
+    name: Microsoft Store installer
+    runs-on: windows-latest
+    needs: native
+    defaults:
+      run:
+        working-directory: clients/desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build Microsoft Store installer
+        run: npm run tauri -- build --config src-tauri/tauri.microsoftstore.conf.json
+
+      - name: Verify Microsoft Store installer
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Filter '*-setup.exe')
+          if ($files.Count -ne 1) { throw "Expected exactly one Store NSIS installer, found $($files.Count)." }
+          Write-Host "Store installer: $($files[0].FullName)"
+
+      - name: Upload Microsoft Store installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: uden-microsoft-store-installer
+          path: clients/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

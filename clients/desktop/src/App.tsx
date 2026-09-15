@@ -1,32 +1,126 @@
-import { FolderOpen, GitBranch, Monitor, Play, Plus, Settings, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Clock3, FolderOpen, GitBranch, LogOut, Play, RefreshCw, Settings, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 import { CLIENT_CAPABILITIES } from '@ai-work-partner/shared';
+import { defaultEngineUrl, EngineApi, Task, TaskStatus } from './engine-api';
+
+const URL_KEY = 'uden.engine.url';
+const KEY_KEY = 'uden.engine.api_key';
+const activeStatuses: TaskStatus[] = ['pending', 'classifying', 'routing', 'processing', 'quality-check', 'escalating', 'approved', 'awaiting-approval'];
+
+function statusLabel(status: TaskStatus) { return status.replace(/-/g, ' '); }
+function money(cents: number) { return `$${(cents / 100).toFixed(2)}`; }
+
+function Connection({ onConnected }: { onConnected: (api: EngineApi, url: string) => void }) {
+  const [url, setUrl] = useState(defaultEngineUrl());
+  const [key, setKey] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const connect = async () => {
+    setBusy(true); setError('');
+    try {
+      const api = new EngineApi(url.trim(), key.trim());
+      await api.getTenant();
+      localStorage.setItem(URL_KEY, url.trim());
+      localStorage.setItem(KEY_KEY, key.trim());
+      onConnected(api, url.trim());
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to connect.'); }
+    finally { setBusy(false); }
+  };
+  return <main className="connection"><div className="connection-card">
+    <Sparkles size={24} className="accent" /><div className="eyebrow">UDEN DESKTOP</div>
+    <h1>Connect your work engine.</h1>
+    <p>The desktop client connects to the real Uden API. Credentials are entered by the user and are not bundled into the application.</p>
+    <label>ENGINE URL<input value={url} onChange={e => setUrl(e.target.value)} autoCapitalize="none" /></label>
+    <label>API KEY<input value={key} onChange={e => setKey(e.target.value)} type="password" /></label>
+    {error && <div className="error"><XCircle size={17} />{error}</div>}
+    <button className="primary" disabled={!url.trim() || !key.trim() || busy} onClick={connect}>{busy ? 'Connecting…' : 'Connect to Uden'}</button>
+  </div></main>;
+}
+
+function TaskRow({ task, onSelect }: { task: Task; onSelect: () => void }) {
+  return <button className="task-row" onClick={onSelect}>
+    <span className={`dot ${task.status}`} />
+    <span className="task-copy"><strong>{task.prompt}</strong><small>{statusLabel(task.status)} · {new Date(task.createdAt).toLocaleString()}</small></span>
+    <span className="task-meta">{money(task.totalCostCents)}</span>
+  </button>;
+}
+
+function Detail({ task, onClose, onApprove, approving }: { task: Task; onClose: () => void; onApprove: () => void; approving: boolean }) {
+  return <div className="detail-panel">
+    <div className="detail-head"><div><div className="eyebrow">EXECUTION</div><h2>{task.prompt}</h2></div><button className="ghost" onClick={onClose}>Close</button></div>
+    <div className="stats"><div><small>STATUS</small><strong>{statusLabel(task.status)}</strong></div><div><small>MODEL</small><strong>{task.modelUsed ?? 'Not recorded'}</strong></div><div><small>COST</small><strong>{money(task.totalCostCents)}</strong></div><div><small>QUALITY</small><strong>{task.qualityScore == null ? 'Not recorded' : `${task.qualityScore}%`}</strong></div></div>
+    {task.status === 'awaiting-approval' && <div className="approval"><ShieldCheck size={18} /><div><strong>Your decision is required.</strong><span>This boundary is enforced by the engine; approving here sends the real approval request.</span></div><button className="primary compact" disabled={approving} onClick={onApprove}>{approving ? 'Approving…' : 'Approve work'}</button></div>}
+    <section className="output"><div className="eyebrow">RECORDED OUTPUT</div><pre>{task.output ?? 'No output has been recorded for this execution.'}</pre><p>Output presence does not independently prove correctness. Review the execution evidence and verification state before treating the result as trusted.</p></section>
+  </div>;
+}
 
 export default function App() {
+  const [api, setApi] = useState<EngineApi | null>(null);
+  const [engineUrl, setEngineUrl] = useState('');
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selected, setSelected] = useState<Task | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
   const capabilities = CLIENT_CAPABILITIES.desktop;
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex">
-      <aside className="w-64 border-r border-slate-800 p-5 flex flex-col">
-        <div className="flex items-center gap-2 font-semibold"><Sparkles size={18} /> Uden</div>
-        <nav className="mt-8 space-y-2 text-sm">
-          <button className="w-full text-left rounded-lg bg-slate-800 px-3 py-2">Workspace</button>
-          <button className="w-full text-left rounded-lg px-3 py-2 text-slate-400">Projects</button>
-          <button className="w-full text-left rounded-lg px-3 py-2 text-slate-400">Graphs</button>
-          <button className="w-full text-left rounded-lg px-3 py-2 text-slate-400">Approvals</button>
-        </nav>
-        <div className="mt-auto text-xs text-slate-500">Desktop capabilities: {capabilities.length}</div>
-      </aside>
-      <section className="flex-1 p-8 max-w-6xl">
-        <header className="flex justify-between items-start gap-4">
-          <div><p className="text-sm text-sky-400">Uden desktop</p><h1 className="text-3xl font-semibold mt-1">Work locally, execute deliberately.</h1><p className="text-slate-400 mt-2">The desktop client will expose the deepest project and local-runtime capabilities while sharing Uden's execution model.</p></div>
-          <button className="rounded-lg bg-sky-500 text-slate-950 px-4 py-2 flex items-center gap-2"><Plus size={16} /> New work</button>
-        </header>
-        <div className="grid md:grid-cols-3 gap-4 mt-8">
-          <article className="border border-slate-800 rounded-xl p-5"><FolderOpen size={19} /><h2 className="font-medium mt-4">Local projects</h2><p className="text-sm text-slate-400 mt-1">Connect a real local workspace when the desktop bridge is available.</p></article>
-          <article className="border border-slate-800 rounded-xl p-5"><GitBranch size={19} /><h2 className="font-medium mt-4">Git workflow</h2><p className="text-sm text-slate-400 mt-1">Inspect and change repositories through explicit desktop capabilities.</p></article>
-          <article className="border border-slate-800 rounded-xl p-5"><Play size={19} /><h2 className="font-medium mt-4">Runtime</h2><p className="text-sm text-slate-400 mt-1">Run project commands only through the fenced execution boundary.</p></article>
-        </div>
-        <div className="mt-6 border border-slate-800 rounded-xl p-5 flex items-center gap-3 text-sm text-slate-400"><Monitor size={18} /><span>Execution state will come from the same Uden API and durable graph state as web and mobile.</span><Settings size={16} className="ml-auto" /></div>
-      </section>
-    </main>
-  );
+
+  const load = useCallback(async (client: EngineApi, manual = false) => {
+    if (manual) setRefreshing(true);
+    try { const next = await client.getTasks(); setTasks(next); setSelected(current => current ? next.find(t => t.id === current.id) ?? current : null); setError(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to load work.'); }
+    finally { if (manual) setRefreshing(false); }
+  }, []);
+
+  useEffect(() => {
+    const url = localStorage.getItem(URL_KEY); const key = localStorage.getItem(KEY_KEY);
+    if (!url || !key) { setLoading(false); return; }
+    const client = new EngineApi(url, key);
+    client.getTenant().then(() => { setApi(client); setEngineUrl(url); return load(client); }).catch(e => setError(e instanceof Error ? e.message : 'Saved connection is unavailable.')).finally(() => setLoading(false));
+  }, [load]);
+
+  useEffect(() => {
+    if (!api || !tasks.some(t => activeStatuses.includes(t.status))) return;
+    const timer = window.setInterval(() => void load(api), 3000);
+    return () => window.clearInterval(timer);
+  }, [api, tasks, load]);
+
+  const approvals = useMemo(() => tasks.filter(t => t.status === 'awaiting-approval'), [tasks]);
+  const active = useMemo(() => tasks.filter(t => activeStatuses.includes(t.status)), [tasks]);
+  const results = useMemo(() => tasks.filter(t => ['completed', 'failed', 'rejected'].includes(t.status)), [tasks]);
+
+  const create = async () => {
+    if (!api || !prompt.trim()) return;
+    setBusy(true); setError('');
+    try { const task = await api.createTask(prompt.trim()); setPrompt(''); setTasks(current => [task, ...current.filter(t => t.id !== task.id)]); setSelected(task); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to start work.'); }
+    finally { setBusy(false); }
+  };
+  const approve = async () => {
+    if (!api || !selected) return;
+    setBusy(true);
+    try { const updated = await api.approveTask(selected.id); setTasks(current => current.map(t => t.id === updated.id ? updated : t)); setSelected(updated); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to approve work.'); }
+    finally { setBusy(false); }
+  };
+  const disconnect = () => { localStorage.removeItem(URL_KEY); localStorage.removeItem(KEY_KEY); setApi(null); setTasks([]); setSelected(null); setEngineUrl(''); };
+
+  if (loading) return <main className="center"><span>Loading Uden…</span></main>;
+  if (!api) return <Connection onConnected={(client, url) => { setApi(client); setEngineUrl(url); void load(client); }} />;
+
+  return <main className="app-shell">
+    <aside className="sidebar"><div className="brand"><Sparkles size={18} /> Uden</div><nav><button className="nav-active">Workspace</button><button>Projects</button><button>Graphs</button><button>Approvals {approvals.length > 0 && <b>{approvals.length}</b>}</button></nav><div className="sidebar-bottom"><small>{capabilities.length} desktop capabilities</small><button className="ghost" onClick={disconnect}><LogOut size={15} /> Disconnect</button></div></aside>
+    <section className="workspace"><header><div><div className="eyebrow accent">WORKSPACE</div><h1>Work locally. Execute deliberately.</h1><p>{engineUrl}</p></div><button className="ghost" onClick={() => void load(api, true)}><RefreshCw size={15} /> {refreshing ? 'Refreshing…' : 'Refresh'}</button></header>
+      {error && <div className="error banner"><XCircle size={17} />{error}</div>}
+      <section className="composer"><div className="eyebrow">NEW WORK</div><textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="What should Uden work on?" /><button className="primary" disabled={!prompt.trim() || busy} onClick={create}><Play size={15} />{busy ? 'Working…' : 'Start work'}</button></section>
+      <div className="grid"><section className="panel"><div className="panel-head"><h2>Active work</h2><span>{active.length}</span></div>{active.length ? active.map(t => <TaskRow key={t.id} task={t} onSelect={() => setSelected(t)} />) : <Empty icon={<Clock3 size={18} />} text="No recorded work is running." />}</section>
+      <section className="panel"><div className="panel-head"><h2>Approvals</h2><span>{approvals.length}</span></div>{approvals.length ? approvals.map(t => <TaskRow key={t.id} task={t} onSelect={() => setSelected(t)} />) : <Empty icon={<ShieldCheck size={18} />} text="Nothing is waiting for your decision." />}</section></div>
+      <section className="panel"><div className="panel-head"><h2>Recent results</h2><span>{results.length}</span></div>{results.slice(0, 8).map(t => <TaskRow key={t.id} task={t} onSelect={() => setSelected(t)} />)}{!results.length && <Empty icon={<CheckCircle2 size={18} />} text="Completed and failed executions will appear here." />}</section>
+      <div className="capability-strip"><FolderOpen size={17} /><span>Local projects</span><GitBranch size={17} /><span>Git workflow</span><Play size={17} /><span>Fenced runtime</span><Settings size={16} className="push" /></div>
+    </section>
+    {selected && <Detail task={selected} onClose={() => setSelected(null)} onApprove={() => void approve()} approving={busy} />}
+  </main>;
 }
+
+function Empty({ icon, text }: { icon: React.ReactNode; text: string }) { return <div className="empty">{icon}<span>{text}</span></div>; }

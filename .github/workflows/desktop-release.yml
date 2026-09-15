@@ -1,0 +1,217 @@
+name: Desktop Release
+
+on:
+  workflow_run:
+    workflows: [Desktop Distribution]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    name: Publish verified desktop release
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          startsWith(github.event.workflow_run.head_branch, 'v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate release identity
+        working-directory: clients/desktop
+        env:
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: node scripts/verify-version.mjs
+
+      - name: Download verified distribution artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: ${{ runner.temp }}/release-inputs
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package immutable release assets
+        env:
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          input="${RUNNER_TEMP}/release-inputs"
+          dist="${RUNNER_TEMP}/release-assets"
+          rm -rf "$dist"
+          mkdir -p "$dist"
+
+          copy_one() {
+            src="$1"
+            name="$2"
+            test -f "$src"
+            cp "$src" "$dist/$name"
+          }
+
+          find_one() {
+            dir="$1"
+            pattern="$2"
+            find "$dir" -type f -name "$pattern" -print -quit
+          }
+
+          windows_x64="$input/uden-windows-x64"
+          windows_arm64="$input/uden-windows-arm64"
+          macos_universal="$input/uden-macos-universal"
+          linux_x64="$input/uden-linux-x64"
+          linux_arm64="$input/uden-linux-arm64"
+          store="$input/uden-microsoft-store-installer"
+
+          copy_one "$(find_one "$windows_x64" '*-setup.exe')" "uden-${version}-windows-x64-setup.exe"
+          copy_one "$(find_one "$windows_x64" '*.msi')" "uden-${version}-windows-x64.msi"
+          copy_one "$(find_one "$windows_arm64" '*-setup.exe')" "uden-${version}-windows-arm64-setup.exe"
+
+          mac_app="$(find "$macos_universal" -type d -name '*.app' -print -quit)"
+          test -n "$mac_app"
+          ditto -c -k --sequesterRsrc --keepParent "$mac_app" "$dist/uden-${version}-macos-universal.app.zip"
+          copy_one "$(find_one "$macos_universal" '*.dmg')" "uden-${version}-macos-universal.dmg"
+
+          copy_one "$(find_one "$linux_x64" '*.AppImage')" "uden-${version}-linux-x64.AppImage"
+          copy_one "$(find_one "$linux_x64" '*.deb')" "uden-${version}-linux-x64.deb"
+          copy_one "$(find_one "$linux_arm64" '*.AppImage')" "uden-${version}-linux-arm64.AppImage"
+          copy_one "$(find_one "$linux_arm64" '*.deb')" "uden-${version}-linux-arm64.deb"
+
+          copy_one "$(find_one "$store" '*-setup.exe')" "uden-${version}-windows-x64-store-setup.exe"
+
+          sha256sum "$dist"/* > "$dist/SHA256SUMS.txt"
+
+          RELEASE_ASSET_DIR="$dist" RELEASE_TAG="$RELEASE_TAG" RELEASE_SHA="$RELEASE_SHA" node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+
+          const dir = process.env.RELEASE_ASSET_DIR;
+          const tag = process.env.RELEASE_TAG;
+          const commit = process.env.RELEASE_SHA;
+          const version = tag.slice(1);
+          const channel = tag.includes('-nightly.') ? 'nightly' : tag.includes('-beta.') ? 'beta' : 'stable';
+          const publishedAt = new Date().toISOString();
+
+          const classify = (name) => {
+            if (name.includes('windows-x64-store')) return ['windows', 'x64'];
+            if (name.includes('windows-x64')) return ['windows', 'x64'];
+            if (name.includes('windows-arm64')) return ['windows', 'arm64'];
+            if (name.includes('macos-universal')) return ['macos', 'universal'];
+            if (name.includes('linux-x64')) return ['linux', 'x64'];
+            if (name.includes('linux-arm64')) return ['linux', 'arm64'];
+            throw new Error(`Cannot classify release asset: ${name}`);
+          };
+
+          const files = fs.readdirSync(dir).filter((name) => name !== 'SHA256SUMS.txt').sort();
+          const artifacts = files.map((filename) => {
+            const [platform, arch] = classify(filename);
+            const sha256 = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, filename))).digest('hex');
+            return {
+              id: filename.replace(/[^a-zA-Z0-9]+/g, '-').replace(/-$/, ''),
+              platform,
+              arch,
+              filename,
+              url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}/${filename}`,
+              sha256
+            };
+          });
+
+          const manifest = {
+            schemaVersion: 1,
+            product: 'uden-desktop',
+            version,
+            tag,
+            channel,
+            commit,
+            publishedAt,
+            artifacts,
+            rollout: {
+              state: channel === 'stable' ? 'active' : 'complete',
+              percentage: channel === 'stable' ? 5 : 100
+            }
+          };
+
+          fs.writeFileSync(path.join(dir, `uden-${version}-release-manifest.json`), JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+
+          sha256sum "$dist"/* > "$dist/SHA256SUMS.txt"
+
+      - name: Verify release manifest before publication
+        env:
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = process.env.RUNNER_TEMP + '/release-assets';
+          const tag = process.env.RELEASE_TAG;
+          const manifest = JSON.parse(fs.readFileSync(path.join(dir, `uden-${tag.slice(1)}-release-manifest.json`), 'utf8'));
+          if (manifest.tag !== tag) throw new Error('Manifest tag mismatch');
+          if (manifest.commit !== process.env.GITHUB_SHA && manifest.commit !== '${{ github.event.workflow_run.head_sha }}') throw new Error('Manifest commit mismatch');
+          if (!manifest.artifacts.length) throw new Error('Manifest contains no artifacts');
+          if (new Set(manifest.artifacts.map((a) => a.filename)).size !== manifest.artifacts.length) throw new Error('Manifest contains duplicate filenames');
+          console.log(JSON.stringify(manifest, null, 2));
+          NODE
+
+      - name: Create release and publish all assets atomically
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace it."
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          prerelease=false
+          if [[ "$RELEASE_TAG" == *-beta.* || "$RELEASE_TAG" == *-nightly.* ]]; then prerelease=true; fi
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/release-assets/* \
+            --verify-tag \
+            --target "$RELEASE_SHA" \
+            --generate-notes \
+            --latest="$([[ "$prerelease" == true ]] && echo false || echo true)" \
+            $([[ "$prerelease" == true ]] && echo --prerelease)
+
+      - name: Verify published release digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          gh release view "$RELEASE_TAG" --json tagName,targetCommitish,isPrerelease,assets > "$RUNNER_TEMP/release.json"
+          RELEASE_ASSET_DIR="$RUNNER_TEMP/release-assets" RELEASE_TAG="$RELEASE_TAG" RELEASE_JSON="$RUNNER_TEMP/release.json" node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const release = JSON.parse(fs.readFileSync(process.env.RELEASE_JSON, 'utf8'));
+          const dir = process.env.RELEASE_ASSET_DIR;
+          const expected = new Map();
+          for (const name of fs.readdirSync(dir)) {
+            if (name === 'SHA256SUMS.txt') continue;
+            expected.set(name, crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, name))).digest('hex'));
+          }
+          for (const asset of release.assets) {
+            if (!expected.has(asset.name)) continue;
+            const remote = (asset.digest || '').replace(/^sha256:/, '');
+            if (!remote || remote !== expected.get(asset.name)) throw new Error(`Release digest mismatch for ${asset.name}`);
+          }
+          for (const name of expected.keys()) {
+            if (!release.assets.some((asset) => asset.name === name)) throw new Error(`Missing published asset ${name}`);
+          }
+          console.log(`Verified ${expected.size} release assets against GitHub digests.`);
+          NODE

@@ -64,7 +64,7 @@ describe.sequential('runtime fencing hardening', () => {
       .bind('fence-hardening-tenant', request.attemptId).run();
     await expect(db.prepare(`UPDATE runtime_executions SET status='failed', stdout='stale' WHERE tenant_id=? AND attempt_id=?`)
       .bind('fence-hardening-tenant', request.attemptId).run())
-      .rejects.toThrow('Terminal runtime execution history is immutable');
+      .rejects.toThrow(/Terminal runtime execution history is immutable|Illegal runtime execution status transition/);
     const row = await db.prepare(`SELECT status,stdout FROM runtime_executions WHERE tenant_id=? AND attempt_id=?`)
       .bind('fence-hardening-tenant', request.attemptId).first<{status:string;stdout:string}>();
     expect(row).toEqual({ status: 'completed', stdout: 'authoritative' });

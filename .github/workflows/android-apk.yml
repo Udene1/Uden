@@ -44,8 +44,24 @@ jobs:
 
       - name: Align Kotlin with Compose compiler
         run: |
-          printf '\nandroid.kotlinVersion=1.9.25\n' >> android/gradle.properties
-          grep '^android.kotlinVersion=' android/gradle.properties
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('android')
+          files = list(root.rglob('*.gradle')) + list(root.rglob('*.gradle.kts')) + list(root.rglob('*.properties'))
+          changed = []
+          for path in files:
+              text = path.read_text()
+              updated = text.replace('1.9.24', '1.9.25')
+              if updated != text:
+                  path.write_text(updated)
+                  changed.append(str(path))
+          if not changed:
+              raise SystemExit('No generated Android Kotlin version declaration was found to align.')
+          print('Aligned Kotlin declarations:')
+          for path in changed:
+              print(path)
+          PY
+          grep -R 'kotlin.*1\.9\.25' android --include='*.gradle' --include='*.gradle.kts' --include='*.properties' | head -20
 
       - name: Build debug APK
         working-directory: clients/mobile/android

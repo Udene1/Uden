@@ -1,3 +1,4 @@
+# Android packaging is intentionally verified on every mobile/workflow change.
 name: Android APK
 
 on:
@@ -21,27 +22,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-
       - name: Install root dependencies
         working-directory: .
         run: npm ci
-
       - name: Install mobile dependencies
         run: npm install --no-audit --no-fund
-
       - name: Verify Expo project
         run: npx expo config --type public
-
       - name: Generate Android project
         run: CI=1 npx expo prebuild --platform android --clean
-
       - name: Align Kotlin with Compose compiler
         run: |
           python3 - <<'PY'
@@ -62,19 +57,15 @@ jobs:
               print(path)
           PY
           grep -R 'kotlin.*1\.9\.25' android --include='*.gradle' --include='*.gradle.kts' --include='*.properties' | head -20
-
       - name: Build debug APK
         working-directory: clients/mobile/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
-
       - name: Verify APK output
         working-directory: clients/mobile
         run: test -s android/app/build/outputs/apk/debug/app-debug.apk
-
       - name: Rename APK
+        working-directory: clients/mobile
         run: cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/Uden-preview.apk
-        working-directory: .
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

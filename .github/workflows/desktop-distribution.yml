@@ -86,6 +86,9 @@ jobs:
       - name: Install desktop dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Generate native icon assets
+        run: npm run tauri -- icon src-tauri/icons/uden.svg
+
       - name: Build native installers
         run: npm run tauri -- build --target ${{ matrix.target }}
 
@@ -98,8 +101,7 @@ jobs:
           if ($exe.Count -lt 1) { throw 'Windows x64 NSIS installer was not produced.' }
           $msi = @(Get-ChildItem -Path "$root/msi" -Filter '*.msi')
           if ($msi.Count -lt 1) { throw 'Windows x64 MSI installer was not produced.' }
-          $exeInfo = Get-Item $exe[0].FullName
-          Write-Host "Windows x64 installer: $($exeInfo.FullName)"
+          Write-Host "Windows x64 installer: $($exe[0].FullName)"
 
       - name: Verify Windows ARM64 installer
         if: matrix.platform == 'windows' && matrix.arch == 'arm64'
@@ -114,8 +116,16 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           root="src-tauri/target/${{ matrix.target }}/release/bundle"
-          test -n "$(find "$root/macos" -maxdepth 1 -name '*.app' -print -quit)"
-          test -n "$(find "$root/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          app="$(find "$root/macos" -maxdepth 1 -name '*.app' -print -quit)"
+          dmg="$(find "$root/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$app"
+          test -n "$dmg"
+          binary="$app/Contents/MacOS/uden-desktop"
+          test -f "$binary"
+          archs="$(lipo -archs "$binary")"
+          echo "macOS universal architectures: $archs"
+          echo "$archs" | grep -qw arm64
+          echo "$archs" | grep -qw x86_64
 
       - name: Verify Linux x64 installers
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
@@ -168,6 +178,9 @@ jobs:
 
       - name: Install desktop dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Generate native icon assets
+        run: npm run tauri -- icon src-tauri/icons/uden.svg
 
       - name: Build Microsoft Store installer
         run: npm run tauri -- build --target x86_64-pc-windows-msvc --config src-tauri/tauri.microsoftstore.conf.json

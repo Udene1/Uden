@@ -2,14 +2,14 @@
   "name": "@uden/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Uden full-capability desktop client shell",
+  "description": "Uden full-capability desktop client",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ai-work-partner/shared": "workspace:*",
+    "@ai-work-partner/shared": "file:../../packages/shared",
     "@tauri-apps/api": "^2.8.0",
     "lucide-react": "^0.475.0",
     "react": "^18.3.1",

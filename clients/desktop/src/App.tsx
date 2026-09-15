@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock3, FolderOpen, GitBranch, LogOut, Play, RefreshCw, Settings, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 import { CLIENT_CAPABILITIES } from '@ai-work-partner/shared';
 import { defaultEngineUrl, EngineApi, Task, TaskStatus } from './engine-api';
+import { addWorkspace, loadWorkspaceState, removeWorkspace, selectWorkspace } from './workspace-manager';
 
 const URL_KEY = 'uden.engine.url';
 const KEY_KEY = 'uden.engine.api_key';
@@ -43,6 +44,65 @@ function TaskRow({ task, onSelect }: { task: Task; onSelect: () => void }) {
     <span className="task-copy"><strong>{task.prompt}</strong><small>{statusLabel(task.status)} · {new Date(task.createdAt).toLocaleString()}</small></span>
     <span className="task-meta">{money(task.totalCostCents)}</span>
   </button>;
+}
+
+function WorkspacePanel() {
+  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [path, setPath] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [ready, setReady] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const state = await loadWorkspaceState();
+      setWorkspaces(state.workspaces);
+      setSelected(state.selected);
+      setError('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The desktop filesystem bridge is unavailable.');
+    } finally { setReady(true); }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const add = async () => {
+    setBusy(true); setError('');
+    try {
+      const state = await addWorkspace(path);
+      setWorkspaces(state.workspaces); setSelected(state.selected); setPath('');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to register workspace.'); }
+    finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    if (!selected) return;
+    setBusy(true); setError('');
+    try {
+      const state = await removeWorkspace(selected);
+      setWorkspaces(state.workspaces); setSelected(state.selected);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to unregister workspace.'); }
+    finally { setBusy(false); }
+  };
+
+  const choose = (value: string) => { setSelected(selectWorkspace(value)); };
+
+  return <section className="panel workspace-panel">
+    <div className="panel-head"><div><h2>Local workspace</h2><small>Registered through the Tauri filesystem boundary</small></div><button className="ghost icon-button" onClick={() => void refresh()} disabled={!ready || busy}><RefreshCw size={15} /></button></div>
+    {error && <div className="error inline-error"><XCircle size={16} />{error}</div>}
+    {!error || workspaces.length > 0 ? <>
+      <div className="workspace-picker">
+        <select value={selected ?? ''} onChange={e => choose(e.target.value || null)} disabled={!workspaces.length || busy}>
+          <option value="">No workspace selected</option>
+          {workspaces.map(workspace => <option key={workspace} value={workspace}>{workspace}</option>)}
+        </select>
+        <button className="ghost" onClick={() => void remove()} disabled={!selected || busy}>Unregister</button>
+      </div>
+      <div className="workspace-add"><input value={path} onChange={e => setPath(e.target.value)} placeholder="/absolute/path/to/project" onKeyDown={e => { if (e.key === 'Enter') void add(); }} /><button className="primary compact" disabled={!path.trim() || busy} onClick={() => void add()}>{busy ? 'Saving…' : 'Register workspace'}</button></div>
+      <p className="panel-note">Uden will only treat a registered path as a local workspace. Registration does not grant arbitrary command execution; commands remain subject to the desktop capability and approval boundary.</p>
+    </> : <div className="empty"><FolderOpen size={18} /><span>Desktop filesystem bridge unavailable. Run the packaged Tauri client to manage local workspaces.</span></div>}
+  </section>;
 }
 
 function Detail({ task, onClose, onApprove, approving }: { task: Task; onClose: () => void; onApprove: () => void; approving: boolean }) {
@@ -114,10 +174,11 @@ export default function App() {
     <section className="workspace"><header><div><div className="eyebrow accent">WORKSPACE</div><h1>Work locally. Execute deliberately.</h1><p>{engineUrl}</p></div><button className="ghost" onClick={() => void load(api, true)}><RefreshCw size={15} /> {refreshing ? 'Refreshing…' : 'Refresh'}</button></header>
       {error && <div className="error banner"><XCircle size={17} />{error}</div>}
       <section className="composer"><div className="eyebrow">NEW WORK</div><textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="What should Uden work on?" /><button className="primary" disabled={!prompt.trim() || busy} onClick={create}><Play size={15} />{busy ? 'Working…' : 'Start work'}</button></section>
+      <WorkspacePanel />
       <div className="grid"><section className="panel"><div className="panel-head"><h2>Active work</h2><span>{active.length}</span></div>{active.length ? active.map(t => <TaskRow key={t.id} task={t} onSelect={() => setSelected(t)} />) : <Empty icon={<Clock3 size={18} />} text="No recorded work is running." />}</section>
       <section className="panel"><div className="panel-head"><h2>Approvals</h2><span>{approvals.length}</span></div>{approvals.length ? approvals.map(t => <TaskRow key={t.id} task={t} onSelect={() => setSelected(t)} />) : <Empty icon={<ShieldCheck size={18} />} text="Nothing is waiting for your decision." />}</section></div>
       <section className="panel"><div className="panel-head"><h2>Recent results</h2><span>{results.length}</span></div>{results.slice(0, 8).map(t => <TaskRow key={t.id} task={t} onSelect={() => setSelected(t)} />)}{!results.length && <Empty icon={<CheckCircle2 size={18} />} text="Completed and failed executions will appear here." />}</section>
-      <div className="capability-strip"><FolderOpen size={17} /><span>Local projects</span><GitBranch size={17} /><span>Git workflow</span><Play size={17} /><span>Fenced runtime</span><Settings size={16} className="push" /></div>
+      <div className="capability-strip"><FolderOpen size={17} /><span>Registered local workspaces</span><GitBranch size={17} /><span>Git workflow</span><Play size={17} /><span>Fenced runtime</span><Settings size={16} className="push" /></div>
     </section>
     {selected && <Detail task={selected} onClose={() => setSelected(null)} onApprove={() => void approve()} approving={busy} />}
   </main>;

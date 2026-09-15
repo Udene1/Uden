@@ -15,6 +15,7 @@ export async function executeDurableLocalCommand(
   client: DurableRuntimeClient,
   request: DurableLocalCommand,
 ): Promise<RuntimeExecutionResult> {
+  const startedAt = new Date().toISOString();
   await client.authorize(request);
   await client.markInFlight(request);
 
@@ -33,6 +34,7 @@ export async function executeDurableLocalCommand(
       exitCode: local.status,
       stdout: local.stdout,
       stderr: local.stderr,
+      startedAt,
       finishedAt: new Date().toISOString(),
       error: local.success ? undefined : local.stderr || `Command exited with status ${local.status}`,
     });
@@ -41,6 +43,7 @@ export async function executeDurableLocalCommand(
     try {
       return await client.complete(request, {
         outcome: 'unknown',
+        startedAt,
         finishedAt: new Date().toISOString(),
         error: message,
       });

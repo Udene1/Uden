@@ -43,43 +43,13 @@ jobs:
       - name: Generate Android project
         run: CI=1 npx expo prebuild --platform android --clean
 
-      - name: Align Kotlin with Compose compiler
+      - name: Verify generated Kotlin toolchain
+        working-directory: clients/mobile
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          roots = [Path('.'), Path('../../packages')]
-          files = []
-          for root in roots:
-              if root.exists():
-                  files.extend(root.rglob('*.gradle'))
-                  files.extend(root.rglob('*.gradle.kts'))
-                  files.extend(root.rglob('*.properties'))
-          changed = []
-          seen = set()
-          for path in files:
-              resolved = path.resolve()
-              if resolved in seen or '.git' in resolved.parts:
-                  continue
-              seen.add(resolved)
-              try:
-                  text = path.read_text()
-              except UnicodeDecodeError:
-                  continue
-              updated = text.replace('1.9.24', '1.9.25')
-              if updated != text:
-                  path.write_text(updated)
-                  changed.append(str(path))
-          if not changed:
-              raise SystemExit('No Kotlin 1.9.24 declaration was found to align.')
-          print('Aligned Kotlin declarations:')
-          for path in changed:
-              print(path)
-          PY
-
-      - name: Verify Kotlin/Compose alignment
-        run: |
-          if grep -R --include='*.gradle' --include='*.gradle.kts' --include='*.properties' -n '1\.9\.24' . android 2>/dev/null; then
-            echo 'Kotlin 1.9.24 remains in the Android build inputs.'
+          test -f android/build.gradle
+          grep -n 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25' android/build.gradle
+          if grep -n '1\.9\.24' android/build.gradle android/gradle.properties 2>/dev/null; then
+            echo 'Kotlin 1.9.24 remains in generated Android build inputs.'
             exit 1
           fi
 

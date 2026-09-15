@@ -64,6 +64,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Validate desktop version
+        run: node scripts/verify-version.mjs
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -175,6 +178,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Validate desktop version
+        run: node scripts/verify-version.mjs
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

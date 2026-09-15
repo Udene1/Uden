@@ -1,0 +1,33 @@
+name: Desktop Client
+
+on:
+  pull_request:
+    paths:
+      - 'clients/desktop/**'
+      - 'packages/shared/**'
+      - '.github/workflows/desktop-client.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/desktop/**'
+      - 'packages/shared/**'
+      - '.github/workflows/desktop-client.yml'
+
+jobs:
+  build:
+    name: Build desktop client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build desktop frontend
+        run: npm run build

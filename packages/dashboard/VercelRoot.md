@@ -1,0 +1,1 @@
+Deployment note: set the Vercel project's Root Directory to `packages/dashboard`. This preserves the monorepo's desktop and Android clients and prevents Vercel from treating the repository root as the Next.js application.

@@ -2,12 +2,12 @@
   "expo": {
     "name": "Uden",
     "slug": "uden",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "icu.uden.app",
-      "versionCode": 3
+      "versionCode": 4
     }
   }
 }

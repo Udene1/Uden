@@ -1,4 +1,4 @@
-import { approveLocalCommand, cloneRepository, runLocalCommand, type LocalCommandResult } from './local-command';
+import { approveLocalCommand, runLocalCommand, type LocalCommandResult } from './local-command';
 
 export interface GitWorkspaceState { branch: string; tracking: string | null; changed: number; staged: number; ahead: number; behind: number; clean: boolean; recentCommits: string[]; }
 function parsePorcelain(output: string) { const lines = output.split('\n').filter(Boolean); const header = lines.shift() ?? ''; const branch = header.match(/^##\s+([^\.\s]+)(?:\.\.([^\s]+))?/)?.[1] ?? 'unknown'; const tracking = header.match(/^##\s+[^\.\s]+\.\.([^\s]+)/)?.[1] ?? null; let changed = 0; let staged = 0; for (const line of lines) { if (line.startsWith('??')) changed++; else { if (line[0] && line[0] !== ' ') staged++; if (line[1] && line[1] !== ' ') changed++; } } return { branch, tracking, changed, staged }; }
@@ -7,4 +7,3 @@ export async function inspectGitWorkspace(cwd: string): Promise<GitWorkspaceStat
 export async function listGitBranches(cwd: string): Promise<string[]> { const result = await git(cwd, ['branch', '--format=%(refname:short)']); if (!result.success) throw new Error(result.stderr || 'Unable to list Git branches.'); return result.stdout.split('\n').map(v => v.trim()).filter(Boolean); }
 export async function gitDiffStat(cwd: string): Promise<string> { const result = await git(cwd, ['diff', '--stat']); if (!result.success) throw new Error(result.stderr || 'Unable to inspect Git diff.'); return result.stdout || 'Working tree has no unstaged diff.'; }
 export async function checkoutGitBranch(cwd: string, branch: string): Promise<LocalCommandResult> { const request = { workspaceRoot: cwd, cwd, program: 'git', args: ['checkout', '--', branch] }; const approvalToken = await approveLocalCommand(request); return runLocalCommand({ ...request, approvalToken }); }
-export async function cloneGitRepository(workspaceRoot: string, url: string, destination: string, branch?: string, depth?: number): Promise<LocalCommandResult> { return cloneRepository({ workspaceRoot, cwd: workspaceRoot, url, destination, branch, depth }); }

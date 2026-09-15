@@ -86,7 +86,10 @@ function WorkspacePanel() {
     finally { setBusy(false); }
   };
 
-  const choose = (value: string) => { setSelected(selectWorkspace(value)); };
+  const choose = (value: string | null) => {
+    setSelected(value);
+    selectWorkspace(value);
+  };
 
   return <section className="panel workspace-panel">
     <div className="panel-head"><div><h2>Local workspace</h2><small>Registered through the Tauri filesystem boundary</small></div><button className="ghost icon-button" onClick={() => void refresh()} disabled={!ready || busy}><RefreshCw size={15} /></button></div>

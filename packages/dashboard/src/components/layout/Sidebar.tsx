@@ -17,7 +17,8 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
-  const primary = navItems.slice(0, 5);
+  const work = navItems.slice(0, 4);
+  const understand = [navItems[4]];
 
   return (
     <>
@@ -30,9 +31,11 @@ export default function Sidebar() {
           </Link>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 pb-3" aria-label="Primary navigation">
-          <p className="px-3 pb-2 pt-2 text-[9px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">Workspace</p>
-          {primary.map((item) => <NavItem key={item.name} item={item} active={isActive(item.href)} />)}
-          <p className="px-3 pb-2 pt-6 text-[9px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">Account</p>
+          <p className="px-3 pb-2 pt-2 text-[9px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">Work</p>
+          {work.map((item) => <NavItem key={item.name} item={item} active={isActive(item.href)} />)}
+          <p className="px-3 pb-2 pt-6 text-[9px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">Understand</p>
+          {understand.map((item) => <NavItem key={item.name} item={item} active={isActive(item.href)} />)}
+          <p className="px-3 pb-2 pt-6 text-[9px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">System</p>
           <NavItem item={navItems[5]} active={isActive(navItems[5].href)} />
         </nav>
         <div className="border-t p-3" style={{ borderColor: 'var(--border-color)' }}>
@@ -59,8 +62,8 @@ export default function Sidebar() {
 function Brand() {
   return (
     <div className="flex items-center gap-3 border-b px-4 py-4" style={{ borderColor: 'var(--border-color)' }}>
-      <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]"><Sparkles size={17} /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" /></div>
-      <div><span className="block text-[15px] font-bold tracking-[-.02em] text-[var(--text-primary)]">Uden</span><span className="text-[9px] font-medium uppercase tracking-[.15em] text-[var(--text-muted)]">AI work system</span></div>
+      <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]"><span className="text-[15px] font-bold">U</span><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" /></div>
+      <div><span className="block text-[15px] font-bold tracking-[-.02em] text-[var(--text-primary)]">Uden</span><span className="text-[9px] font-medium uppercase tracking-[.15em] text-[var(--text-muted)]">Work operating system</span></div>
     </div>
   );
 }

@@ -1,5 +1,7 @@
 export type TaskStatus = 'pending' | 'classifying' | 'routing' | 'processing' | 'quality-check' | 'escalating' | 'completed' | 'failed' | 'awaiting-approval' | 'approved' | 'rejected';
 
+export interface Tenant { id: string; name: string; email?: string; }
+
 export interface Task {
   id: string;
   prompt: string;
@@ -36,7 +38,8 @@ export class EngineApi {
     return parsed as T;
   }
 
-  getTenant() { return this.request<unknown>('/tenant'); }
+  getTenant() { return this.request<{ tenant: Tenant }>('/tenant'); }
+  registerTenant(name: string, email = '') { return this.request<{ tenant: Tenant; api_key: string }>('/tenants', { method: 'POST', body: JSON.stringify({ name, email }) }); }
   getTasks() { return this.request<Task[]>('/tasks'); }
   getTask(id: string) { return this.request<Task>(`/tasks/${encodeURIComponent(id)}`); }
   createTask(prompt: string, mode: Task['mode'] = 'permissionless') {

@@ -5,45 +5,30 @@ import { api } from './api';
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     CredentialsProvider({
-      name: 'API Key',
+      name: 'Uden account',
       credentials: {
-        apiKey: { label: 'API Key', type: 'password' },
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.apiKey) return null;
+        if (!credentials?.email || !credentials?.password) return null;
         try {
-          const result = await api.getCurrentTenant(credentials.apiKey as string);
-          const tenant = result.tenant;
-          if (!tenant) return null;
-          return {
-            id: tenant.id,
-            name: tenant.name,
-            apiKey: credentials.apiKey,
-          };
-        } catch {
-          return null;
-        }
+          const result = await api.login(String(credentials.email), String(credentials.password));
+          return { id: result.tenant.id, name: result.tenant.name, email: result.tenant.email, sessionToken: result.session_token };
+        } catch { return null; }
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        token.apiKey = (user as any).apiKey;
-        token.id = user.id;
-      }
+      if (user) { token.sessionToken = (user as any).sessionToken; token.id = user.id; }
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        session.user.id = token.id as string;
-        (session as any).apiKey = token.apiKey;
-      }
+      if (token) { session.user.id = token.id as string; (session as any).sessionToken = token.sessionToken; }
       return session;
     },
   },
-  pages: {
-    signIn: '/login',
-  },
+  pages: { signIn: '/login' },
   session: { strategy: 'jwt' },
 });

@@ -15,43 +15,54 @@ function statusLabel(status: TaskStatus): string {
 function formatCost(cents: number): string { return `$${(cents / 100).toFixed(2)}`; }
 
 function ConnectionScreen({ onConnected }: { onConnected: (api: EngineApi, url: string) => void }) {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [url, setUrl] = useState(defaultEngineUrl());
   const [apiKey, setApiKey] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  const connect = async () => {
+  const submit = async () => {
     setBusy(true); setError('');
     try {
-      const api = createEngineApi(url, apiKey);
-      await api.getTenant();
-      await SecureStore.setItemAsync(ENGINE_URL_KEY, url.trim());
-      await SecureStore.setItemAsync(API_KEY_KEY, apiKey.trim());
-      onConnected(api, url.trim());
+      const base = url.trim();
+      let resolvedKey = apiKey.trim();
+      if (mode === 'signup') {
+        if (!name.trim()) throw new Error('Workspace name is required.');
+        const created = await createEngineApi(base, '').registerTenant(name.trim(), email.trim());
+        resolvedKey = created.api_key;
+        setApiKey(resolvedKey);
+      }
+      if (!resolvedKey) throw new Error('API key is required.');
+      const client = createEngineApi(base, resolvedKey);
+      await client.getTenant();
+      await SecureStore.setItemAsync(ENGINE_URL_KEY, base);
+      await SecureStore.setItemAsync(API_KEY_KEY, resolvedKey);
+      onConnected(client, base);
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to connect to Uden.'); }
     finally { setBusy(false); }
   };
-
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.bg} />
       <ScrollView contentContainerStyle={styles.connectionContainer} keyboardShouldPersistTaps="handled">
         <View style={styles.brandMark}><Sparkles size={22} color={COLORS.accent} /></View>
         <Text style={styles.eyebrow}>UDEN</Text>
-        <Text style={styles.connectionTitle}>Your work system, in your pocket.</Text>
-        <Text style={styles.connectionText}>Connect this device to your real Uden engine. Credentials stay in the device secure store and are never bundled into the APK.</Text>
+        <Text style={styles.connectionTitle}>{mode === 'signin' ? 'Sign in to your work system.' : 'Create your Uden workspace.'}</Text>
+        <Text style={styles.connectionText}>{mode === 'signin' ? 'Sign in with the tenant API key for your Uden account.' : 'Create the tenant that owns your projects, tasks, executions, approvals, graph, and usage.'}</Text>
+        <View style={styles.authSwitch}><TouchableOpacity onPress={() => { setMode('signin'); setError(''); setApiKey(''); }} style={[styles.authTab, mode === 'signin' && styles.authTabActive]}><Text style={[styles.authTabText, mode === 'signin' && styles.authTabTextActive]}>Sign in</Text></TouchableOpacity><TouchableOpacity onPress={() => { setMode('signup'); setError(''); setApiKey(''); }} style={[styles.authTab, mode === 'signup' && styles.authTabActive]}><Text style={[styles.authTabText, mode === 'signup' && styles.authTabTextActive]}>Create account</Text></TouchableOpacity></View>
         <View style={styles.field}><Text style={styles.fieldLabel}>ENGINE URL</Text><TextInput autoCapitalize="none" autoCorrect={false} value={url} onChangeText={setUrl} placeholder="https://your-engine.example/api/v1" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View>
-        <View style={styles.field}><Text style={styles.fieldLabel}>API KEY</Text><TextInput autoCapitalize="none" autoCorrect={false} secureTextEntry value={apiKey} onChangeText={setApiKey} placeholder="Paste your Uden API key" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View>
+        {mode === 'signup' && <><View style={styles.field}><Text style={styles.fieldLabel}>WORKSPACE NAME</Text><TextInput value={name} onChangeText={setName} placeholder="Your workspace" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View><View style={styles.field}><Text style={styles.fieldLabel}>EMAIL (OPTIONAL)</Text><TextInput autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View></>}
+        {mode === 'signin' && <View style={styles.field}><Text style={styles.fieldLabel}>API KEY</Text><TextInput autoCapitalize="none" autoCorrect={false} secureTextEntry value={apiKey} onChangeText={setApiKey} placeholder="Paste your Uden API key" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View>}
         {!!error && <ErrorBox text={error} />}
-        <TouchableOpacity disabled={!url.trim() || !apiKey.trim() || busy} onPress={connect} style={[styles.primary, (!url.trim() || !apiKey.trim() || busy) && styles.disabled]}>
+        <TouchableOpacity disabled={!url.trim() || busy || (mode === 'signin' ? !apiKey.trim() : !name.trim())} onPress={() => void submit()} style={[styles.primary, (!url.trim() || busy || (mode === 'signin' ? !apiKey.trim() : !name.trim())) && styles.disabled]}>
           {busy ? <ActivityIndicator size="small" color={COLORS.bg} /> : <ShieldCheck size={17} color={COLORS.bg} />}
-          <Text style={styles.primaryText}>{busy ? 'Connecting…' : 'Connect to Uden'}</Text>
+          <Text style={styles.primaryText}>{busy ? (mode === 'signup' ? 'Creating…' : 'Signing in…') : (mode === 'signup' ? 'Create workspace' : 'Sign in')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
 export default function App() {
   const capabilities = CLIENT_CAPABILITIES.mobile;
   const [api, setApi] = useState<EngineApi | null>(null);

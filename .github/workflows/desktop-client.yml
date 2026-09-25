@@ -37,15 +37,24 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: clients/desktop/src-tauri
+        working-directory: clients/desktop
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y             libwebkit2gtk-4.1-dev             libappindicator3-dev             librsvg2-dev             patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install desktop dependencies
+        run: npm install --no-audit --no-fund
+      - name: Generate native icon assets
+        run: npm run tauri -- icon src-tauri/icons/uden.svg
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cargo check
+        working-directory: clients/desktop/src-tauri
         run: cargo check

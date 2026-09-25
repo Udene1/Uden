@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HonoEnv } from '../types';
-import { createTenant, getTenantById, revokeAuthSession, hashPasswordLookup } from '../db/queries';
+import { createTenant, getTenantById, revokeAuthSession } from '../db/queries';
 import { hashApiKey } from '../middleware/auth';
 import { Tenant } from '@ai-work-partner/shared';
 

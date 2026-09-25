@@ -8,6 +8,9 @@ export async function createTenant(db: D1Database, tenant: Tenant) {
 }
 
 export async function getTenantByApiKey(db: D1Database, apiKeyHash: string): Promise<Tenant | null> { const row = await db.prepare(`SELECT * FROM tenants WHERE api_key_hash = ?`).bind(apiKeyHash).first<any>(); return row ? mapTenantRow(row) : null; }
+export async function getTenantBySessionTokenHash(db: D1Database, tokenHash: string): Promise<Tenant | null> { const row = await db.prepare(`SELECT t.* FROM auth_sessions s JOIN tenants t ON t.id = s.tenant_id WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP`).bind(tokenHash).first<any>(); return row ? mapTenantRow(row) : null; }
+export async function touchAuthSession(db: D1Database, tokenHash: string) { await db.prepare(`UPDATE auth_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE token_hash = ?`).bind(tokenHash).run(); }
+export async function revokeAuthSession(db: D1Database, tokenHash: string) { await db.prepare(`DELETE FROM auth_sessions WHERE token_hash = ?`).bind(tokenHash).run(); }
 export async function getTenantById(db: D1Database, id: string): Promise<Tenant | null> { const row = await db.prepare(`SELECT * FROM tenants WHERE id = ?`).bind(id).first<any>(); return row ? mapTenantRow(row) : null; }
 
 export async function updateTenant(db: D1Database, id: string, updates: Partial<Tenant>) {

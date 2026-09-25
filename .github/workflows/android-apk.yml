@@ -11,6 +11,19 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/android-apk.yml'
+  pull_request:
+    paths:
+      - 'clients/mobile/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android-apk.yml'
+    paths:
+      - 'clients/mobile/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android-apk.yml'
 
 jobs:
   build-apk:

@@ -2,14 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, FolderKanban, LayoutDashboard, ListTodo, Plus, Settings, Sparkles, Workflow } from 'lucide-react';
+import { BarChart3, FolderKanban, LayoutDashboard, ListTodo, Plus, Settings, Workflow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { name: 'Workspace', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Tasks', href: '/tasks', icon: ListTodo },
-  { name: 'Graphs', href: '/graphs', icon: Workflow },
   { name: 'Projects', href: '/projects', icon: FolderKanban },
+  { name: 'Graphs', href: '/graphs', icon: Workflow },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -17,8 +17,8 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
-  const work = navItems.slice(0, 4);
-  const understand = [navItems[4]];
+  const work = navItems.slice(0, 3);
+  const understand = navItems.slice(3, 5);
 
   return (
     <>
@@ -48,7 +48,7 @@ export default function Sidebar() {
 
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-[var(--bg-secondary)]/95 px-2 pt-1.5 backdrop-blur-xl md:hidden" style={{ borderColor: 'var(--border-color)' }} aria-label="Mobile navigation">
         <div className="mx-auto grid h-[3.65rem] max-w-md grid-cols-5">
-          {[navItems[0], navItems[1], navItems[2], navItems[4], navItems[5]].map((item) => {
+          {[navItems[0], navItems[1], navItems[3], navItems[4], navItems[5]].map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
             return <Link key={item.name} href={item.href} aria-current={active ? 'page' : undefined} className={cn('relative flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[9px] font-semibold transition-all', active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]')}><span className={cn('flex h-7 w-9 items-center justify-center rounded-lg transition', active && 'bg-[var(--accent-soft)]')}><Icon size={18} strokeWidth={active ? 2.2 : 1.8} /></span><span>{item.name}</span>{active && <span className="absolute bottom-0 h-0.5 w-5 rounded-full bg-[var(--accent-primary)]" />}</Link>;

@@ -23,13 +23,13 @@ function Connection({ onConnected }: { onConnected: (api: EngineApi, url: string
     setBusy(true); setError('');
     try {
       const base = url.trim();
+      let resolvedKey = key.trim();
       if (mode === 'signup') {
         if (!name.trim()) throw new Error('Workspace name is required.');
         const created = await new EngineApi(base, '').registerTenant(name.trim(), email.trim());
-        setKey(created.api_key);
+        resolvedKey = created.api_key;
+        setKey(resolvedKey);
       }
-      const api = new EngineApi(base, mode === 'signup' ? key || '' : key.trim());
-      const resolvedKey = mode === 'signup' ? key || '' : key.trim();
       if (!resolvedKey) throw new Error('API key is required.');
       await new EngineApi(base, resolvedKey).getTenant();
       localStorage.setItem(URL_KEY, base); localStorage.setItem(KEY_KEY, resolvedKey);

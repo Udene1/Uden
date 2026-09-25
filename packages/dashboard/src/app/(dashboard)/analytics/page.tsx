@@ -64,7 +64,7 @@ export default function AnalyticsPage() {
           <div><h2 id="usage-trend" className="text-lg font-semibold text-[var(--text-primary)]">Execution over time</h2><p className="text-xs text-[var(--text-secondary)] mt-1">Daily recorded task volume and actual cost.</p></div>
           <div className="text-xs text-[var(--text-muted)]">{recentDaily.length ? `Last ${recentDaily.length} recorded days` : 'No daily records yet'}</div>
         </div>
-        {recentDaily.length ? <div className="mt-6 grid grid-cols-7 gap-2 sm:grid-cols-14" aria-label="Daily execution cost chart">
+        {recentDaily.length ? <div className="mt-6 grid gap-2 overflow-x-auto" style={{ gridTemplateColumns: `repeat(${recentDaily.length}, minmax(2.5rem, 1fr))` }} aria-label="Daily execution cost chart">
           {recentDaily.map((day) => {
             const height = Math.max(6, Math.round((day.cost_cents / maxCost) * 100));
             return <div key={day.date} className="group min-w-0">

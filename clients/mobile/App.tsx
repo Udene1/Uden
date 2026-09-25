@@ -7,6 +7,7 @@ import { createEngineApi, defaultEngineUrl, EngineApi, Task, TaskStatus } from '
 
 const ENGINE_URL_KEY = 'uden.engine.url';
 const API_KEY_KEY = 'uden.engine.api_key';
+const SESSION_KEY = 'uden.auth.session';
 const ACTIVE_STATUSES: TaskStatus[] = ['pending', 'classifying', 'routing', 'processing', 'quality-check', 'escalating', 'approved'];
 
 function statusLabel(status: TaskStatus): string {
@@ -15,43 +16,25 @@ function statusLabel(status: TaskStatus): string {
 function formatCost(cents: number): string { return `$${(cents / 100).toFixed(2)}`; }
 
 function ConnectionScreen({ onConnected }: { onConnected: (api: EngineApi, url: string) => void }) {
-  const [url, setUrl] = useState(defaultEngineUrl());
-  const [apiKey, setApiKey] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const connect = async () => {
-    setBusy(true); setError('');
-    try {
-      const api = createEngineApi(url, apiKey);
-      await api.getTenant();
-      await SecureStore.setItemAsync(ENGINE_URL_KEY, url.trim());
-      await SecureStore.setItemAsync(API_KEY_KEY, apiKey.trim());
-      onConnected(api, url.trim());
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to connect to Uden.'); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.bg} />
-      <ScrollView contentContainerStyle={styles.connectionContainer} keyboardShouldPersistTaps="handled">
-        <View style={styles.brandMark}><Sparkles size={22} color={COLORS.accent} /></View>
-        <Text style={styles.eyebrow}>UDEN</Text>
-        <Text style={styles.connectionTitle}>Your work system, in your pocket.</Text>
-        <Text style={styles.connectionText}>Connect this device to your real Uden engine. Credentials stay in the device secure store and are never bundled into the APK.</Text>
-        <View style={styles.field}><Text style={styles.fieldLabel}>ENGINE URL</Text><TextInput autoCapitalize="none" autoCorrect={false} value={url} onChangeText={setUrl} placeholder="https://your-engine.example/api/v1" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View>
-        <View style={styles.field}><Text style={styles.fieldLabel}>API KEY</Text><TextInput autoCapitalize="none" autoCorrect={false} secureTextEntry value={apiKey} onChangeText={setApiKey} placeholder="Paste your Uden API key" placeholderTextColor={COLORS.muted} style={styles.fieldInput} /></View>
-        {!!error && <ErrorBox text={error} />}
-        <TouchableOpacity disabled={!url.trim() || !apiKey.trim() || busy} onPress={connect} style={[styles.primary, (!url.trim() || !apiKey.trim() || busy) && styles.disabled]}>
-          {busy ? <ActivityIndicator size="small" color={COLORS.bg} /> : <ShieldCheck size={17} color={COLORS.bg} />}
-          <Text style={styles.primaryText}>{busy ? 'Connecting…' : 'Connect to Uden'}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
-  );
+  const [url,setUrl]=useState(defaultEngineUrl()); const [mode,setMode]=useState<'signin'|'signup'|'apikey'>('signin');
+  const [name,setName]=useState(''); const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [key,setKey]=useState('');
+  const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
+  const connect=async()=>{setBusy(true);setError('');try{
+    if(mode==='apikey'){const api=createEngineApi(url,key);await api.getTenant();await SecureStore.setItemAsync(ENGINE_URL_KEY,url.trim());await SecureStore.setItemAsync(API_KEY_KEY,key.trim());await SecureStore.deleteItemAsync(SESSION_KEY);onConnected(api,url.trim());return;}
+    const result=mode==='signin'?await EngineApi.signIn(url.trim(),email.trim(),password):await EngineApi.signUp(url.trim(),name.trim(),email.trim(),password);
+    await SecureStore.setItemAsync(ENGINE_URL_KEY,url.trim());await SecureStore.setItemAsync(SESSION_KEY,result.sessionToken);await SecureStore.deleteItemAsync(API_KEY_KEY);onConnected(createEngineApi(url,result.sessionToken),url.trim());
+  }catch(err){setError(err instanceof Error?err.message:'Unable to authenticate.');}finally{setBusy(false);}};
+  return <SafeAreaView style={styles.safe}><StatusBar barStyle="light-content" backgroundColor={COLORS.bg}/><ScrollView contentContainerStyle={styles.connectionContainer} keyboardShouldPersistTaps="handled">
+    <View style={styles.brandMark}><Sparkles size={22} color={COLORS.accent}/></View><Text style={styles.eyebrow}>UDEN</Text><Text style={styles.connectionTitle}>{mode==='signup'?'Create your Uden account.':'Welcome to Uden.'}</Text><Text style={styles.connectionText}>Sign in once and use the same Uden account across clients.</Text>
+    <View style={styles.authTabs}><TouchableOpacity onPress={()=>setMode('signin')} style={[styles.authTab,mode==='signin'&&styles.authTabActive]}><Text style={[styles.authTabText,mode==='signin'&&styles.authTabTextActive]}>Sign in</Text></TouchableOpacity><TouchableOpacity onPress={()=>setMode('signup')} style={[styles.authTab,mode==='signup'&&styles.authTabActive]}><Text style={[styles.authTabText,mode==='signup'&&styles.authTabTextActive]}>Create account</Text></TouchableOpacity></View>
+    {mode==='signup'&&<View style={styles.field}><Text style={styles.fieldLabel}>NAME</Text><TextInput value={name} onChangeText={setName} placeholder="Your name or workspace" placeholderTextColor={COLORS.muted} style={styles.fieldInput}/></View>}
+    {mode!=='apikey'&&<View style={styles.field}><Text style={styles.fieldLabel}>EMAIL</Text><TextInput autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor={COLORS.muted} style={styles.fieldInput}/></View>}
+    {mode!=='apikey'&&<View style={styles.field}><Text style={styles.fieldLabel}>PASSWORD</Text><TextInput secureTextEntry value={password} onChangeText={setPassword} placeholder="At least 8 characters" placeholderTextColor={COLORS.muted} style={styles.fieldInput}/></View>}
+    {mode==='apikey'&&<View style={styles.field}><Text style={styles.fieldLabel}>API KEY</Text><TextInput autoCapitalize="none" secureTextEntry value={key} onChangeText={setKey} placeholder="Paste an existing API key" placeholderTextColor={COLORS.muted} style={styles.fieldInput}/></View>}
+    {!!error&&<ErrorBox text={error}/>}<TouchableOpacity disabled={busy||!url.trim()||(mode==='apikey'?!key.trim():!email.trim()||!password.trim()||(mode==='signup'&&!name.trim()))} onPress={connect} style={[styles.primary,(!url.trim()||(mode==='apikey'?!key.trim():!email.trim()||!password.trim()||(mode==='signup'&&!name.trim()))||busy)&&styles.disabled]}>{busy?<ActivityIndicator size="small" color={COLORS.bg}/>:<ShieldCheck size={17} color={COLORS.bg}/>}<Text style={styles.primaryText}>{busy?'Connecting…':mode==='signup'?'Create account':mode==='apikey'?'Connect with API key':'Sign in'}</Text></TouchableOpacity>
+    <TouchableOpacity onPress={()=>setMode(mode==='apikey'?'signin':'apikey')}><Text style={styles.advancedLink}>{mode==='apikey'?'Use account sign-in':'Use an API key instead'}</Text></TouchableOpacity>
+  </ScrollView></SafeAreaView>;
 }
-
 export default function App() {
   const capabilities = CLIENT_CAPABILITIES.mobile;
   const [api, setApi] = useState<EngineApi | null>(null);
@@ -83,7 +66,7 @@ export default function App() {
     let mounted = true;
     (async () => {
       try {
-        const [url, key] = await Promise.all([SecureStore.getItemAsync(ENGINE_URL_KEY), SecureStore.getItemAsync(API_KEY_KEY)]);
+        const [url, key] = await Promise.all([SecureStore.getItemAsync(ENGINE_URL_KEY), SecureStore.getItemAsync(SESSION_KEY).then(v=>v||SecureStore.getItemAsync(API_KEY_KEY))]);
         if (!mounted) return;
         if (url && key) {
           const client = createEngineApi(url, key);
@@ -132,7 +115,7 @@ export default function App() {
   };
 
   const disconnect = async () => {
-    await SecureStore.deleteItemAsync(ENGINE_URL_KEY); await SecureStore.deleteItemAsync(API_KEY_KEY);
+    await api?.logout().catch(()=>{}); await SecureStore.deleteItemAsync(ENGINE_URL_KEY); await SecureStore.deleteItemAsync(API_KEY_KEY); await SecureStore.deleteItemAsync(SESSION_KEY);
     setApi(null); setEngineUrl(''); setTasks([]); setSelectedTask(null); setError('');
   };
 

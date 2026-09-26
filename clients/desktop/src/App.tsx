@@ -5,6 +5,7 @@ import { defaultEngineUrl, EngineApi, Task, TaskStatus } from './engine-api';
 import { addWorkspace, loadWorkspaceState, removeWorkspace, selectWorkspace } from './workspace-manager';
 import { checkoutGitBranch, gitDiffStat, inspectGitWorkspace, listGitBranches, type GitWorkspaceState } from './git-workspace';
 
+// CI verification touch: exercise the current graph-enabled desktop build.
 const URL_KEY = 'uden.engine.url';
 const KEY_KEY = 'uden.engine.api_key';
 const activeStatuses: TaskStatus[] = ['pending', 'classifying', 'routing', 'processing', 'quality-check', 'escalating', 'approved', 'awaiting-approval'];

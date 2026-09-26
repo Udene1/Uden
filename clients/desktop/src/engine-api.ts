@@ -48,6 +48,25 @@ export class EngineApi {
   approveTask(id: string) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({}) });
   }
+  planGraph(prompt: string) {
+    return this.request<{ plan: unknown; graph: unknown; approval: { required: boolean; reasons?: string[]; nodes?: string[] } }>(
+      '/tasks/plan', { method: 'POST', body: JSON.stringify({ prompt }) }
+    );
+  }
+  executeGraph(plan: unknown, approved = false) {
+    return this.request<{ graph: any; status?: string }>('/tasks/graph/execute', {
+      method: 'POST', body: JSON.stringify({ plan, approved })
+    });
+  }
+  getGraphs() {
+    return this.request<{ graphs: any[] }>('/tasks/graphs');
+  }
+  getGraph(id: string) {
+    return this.request<{ graph: any }>(`/tasks/graph/${encodeURIComponent(id)}`);
+  }
+  resumeGraph(id: string) {
+    return this.request<{ graph: any; status?: string }>(`/tasks/graph/${encodeURIComponent(id)}/resume`, { method: 'POST' });
+  }
 }
 
 export const defaultEngineUrl = () => import.meta.env.VITE_ENGINE_URL || '/api/v1';

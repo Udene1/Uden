@@ -59,6 +59,10 @@ export class EngineApi {
     return body as T;
   }
 
+  async registerTenant(name: string, email = ''): Promise<{ tenant: Tenant; api_key: string }> {
+    return this.request<{ tenant: Tenant; api_key: string }>('/tenants', { method: 'POST', body: JSON.stringify({ name, email }) });
+  }
+
   async getTenant(): Promise<Tenant> {
     const result = await this.request<{ tenant: Tenant }>('/tenant');
     return result.tenant;

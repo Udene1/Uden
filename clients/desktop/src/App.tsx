@@ -12,9 +12,33 @@ function statusLabel(status: TaskStatus) { return status.replace(/-/g, ' '); }
 function money(cents: number) { return `$${(cents / 100).toFixed(2)}`; }
 
 function Connection({ onConnected }: { onConnected: (api: EngineApi, url: string) => void }) {
-  const [url, setUrl] = useState(defaultEngineUrl()); const [key, setKey] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const connect = async () => { setBusy(true); setError(''); try { const api = new EngineApi(url.trim(), key.trim()); await api.getTenant(); localStorage.setItem(URL_KEY, url.trim()); localStorage.setItem(KEY_KEY, key.trim()); onConnected(api, url.trim()); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to connect.'); } finally { setBusy(false); } };
-  return <main className="connection"><div className="connection-card"><Sparkles size={24} className="accent" /><div className="eyebrow">UDEN DESKTOP</div><h1>Connect your work engine.</h1><p>The desktop client connects to the real Uden API. Credentials are entered by the user and are not bundled into the application.</p><label>ENGINE URL<input value={url} onChange={e => setUrl(e.target.value)} autoCapitalize="none" /></label><label>API KEY<input value={key} onChange={e => setKey(e.target.value)} type="password" /></label>{error && <div className="error"><XCircle size={17} />{error}</div>}<button className="primary" disabled={!url.trim() || !key.trim() || busy} onClick={connect}>{busy ? 'Connecting…' : 'Connect to Uden'}</button></div></main>;
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [url, setUrl] = useState(defaultEngineUrl());
+  const [key, setKey] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError('');
+    try {
+      const base = url.trim();
+      let resolvedKey = key.trim();
+      if (mode === 'signup') {
+        if (!name.trim()) throw new Error('Workspace name is required.');
+        const created = await new EngineApi(base, '').registerTenant(name.trim(), email.trim());
+        resolvedKey = created.api_key;
+        setKey(resolvedKey);
+      }
+      if (!resolvedKey) throw new Error('API key is required.');
+      await new EngineApi(base, resolvedKey).getTenant();
+      localStorage.setItem(URL_KEY, base); localStorage.setItem(KEY_KEY, resolvedKey);
+      onConnected(new EngineApi(base, resolvedKey), base);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to connect to Uden.'); }
+    finally { setBusy(false); }
+  };
+  const switchMode = (next: 'signin' | 'signup') => { setMode(next); setError(''); setKey(''); };
+  return <main className="connection"><div className="connection-card"><Sparkles size={24} className="accent" /><div className="eyebrow">UDEN DESKTOP</div><h1>{mode === 'signin' ? 'Sign in to your work system.' : 'Create your Uden workspace.'}</h1><p>{mode === 'signin' ? 'Sign in with the tenant API key for your Uden account.' : 'Create the tenant that owns your projects, tasks, executions, approvals, graph, and usage.'}</p><div className="auth-switch"><button className={mode === 'signin' ? 'active' : ''} onClick={() => switchMode('signin')}>Sign in</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => switchMode('signup')}>Create account</button></div><label>ENGINE URL<input value={url} onChange={e => setUrl(e.target.value)} autoCapitalize="none" /></label>{mode === 'signup' && <><label>WORKSPACE NAME<input value={name} onChange={e => setName(e.target.value)} placeholder="Your workspace" /></label><label>EMAIL (OPTIONAL)<input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="you@example.com" /></label></>}{mode === 'signin' && <label>API KEY<input value={key} onChange={e => setKey(e.target.value)} type="password" /></label>}{error && <div className="error"><XCircle size={17} />{error}</div>}<button className="primary" disabled={!url.trim() || busy || (mode === 'signin' && !key.trim()) || (mode === 'signup' && !name.trim())} onClick={() => void submit()}>{busy ? (mode === 'signup' ? 'Creating…' : 'Signing in…') : (mode === 'signup' ? 'Create workspace' : 'Sign in')}</button></div></main>;
 }
 function TaskRow({ task, onSelect }: { task: Task; onSelect: () => void }) { return <button className="task-row" onClick={onSelect}><span className={`dot ${task.status}`} /><span className="task-copy"><strong>{task.prompt}</strong><small>{statusLabel(task.status)} · {new Date(task.createdAt).toLocaleString()}</small></span><span className="task-meta">{money(task.totalCostCents)}</span></button>; }
 

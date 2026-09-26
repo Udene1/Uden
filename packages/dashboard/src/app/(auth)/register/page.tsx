@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [generatedKey, setGeneratedKey] = useState('');
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function RegisterPage() {
     setIsLoading(true);
     
     try {
-      const res = await api.registerTenant(name);
+      const res = await api.registerTenant(name, email);
       if (res.apiKey) {
         setGeneratedKey(res.apiKey);
       }
@@ -51,6 +52,11 @@ export default function RegisterPage() {
               placeholder="Acme Corp"
               required
             />
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Email (optional)</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="you@example.com" />
           </div>
 
           <button 

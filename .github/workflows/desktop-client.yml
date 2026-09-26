@@ -41,6 +41,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Linux Tauri dependencies
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install desktop dependencies
+        working-directory: clients/desktop
+        run: npm install --no-audit --no-fund
+      - name: Generate native Tauri icons
+        working-directory: clients/desktop
+        run: npm run tauri -- icon src-tauri/icons/uden.svg
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cargo check

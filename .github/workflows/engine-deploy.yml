@@ -49,7 +49,7 @@ jobs:
       - name: Verify workers.dev account subdomain
         run: |
           set -euo pipefail
-          RESPONSE="$(curl --silent --show-error -w '\\n%{http_code}' \
+          RESPONSE="$(curl --silent --show-error -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
           STATUS="$(printf '%s' "$RESPONSE" | tail -n1)"

@@ -34,7 +34,7 @@ function ConnectionScreen({ onConnected }: { onConnected: (api: EngineApi, url: 
         setApiKey(resolvedKey);
       }
       if (!resolvedKey) throw new Error('API key is required.');
-      const client = createEngineApi(base, resolvedKey);
+      const client = await EngineApi.fromApiKey(base, resolvedKey);
       await client.getTenant();
       await SecureStore.setItemAsync(ENGINE_URL_KEY, base);
       await SecureStore.setItemAsync(API_KEY_KEY, resolvedKey);

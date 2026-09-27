@@ -1,0 +1,148 @@
+name: Engine Deploy (Cloudflare)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_database:
+        description: "Initialize the production D1 schema and legacy migrations on first deployment"
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - "packages/engine/**"
+      - "packages/shared/**"
+      - ".github/workflows/engine-deploy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    defaults:
+      run:
+        working-directory: packages/engine
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Verify Cloudflare credentials
+        run: npx wrangler whoami
+
+      - name: Provision D1 database
+        id: d1
+        run: |
+          set -euo pipefail
+          DB_NAME="ai-work-partner-db"
+          DB_JSON="$(npx wrangler d1 list --json)"
+          DB_ID="$(printf '%s' "$DB_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.name==="ai-work-partner-db");if(r)process.stdout.write(r.uuid||r.id||"");})')"
+          if [ -z "$DB_ID" ]; then
+            npx wrangler d1 create "$DB_NAME"
+            DB_JSON="$(npx wrangler d1 list --json)"
+            DB_ID="$(printf '%s' "$DB_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.name==="ai-work-partner-db");if(r)process.stdout.write(r.uuid||r.id||"");})')"
+          fi
+          test -n "$DB_ID"
+          echo "DB_ID=$DB_ID" >> "$GITHUB_ENV"
+
+      - name: Provision KV namespace
+        id: kv
+        run: |
+          set -euo pipefail
+          KV_JSON="$(npx wrangler kv namespace list)"
+          KV_ID="$(printf '%s' "$KV_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.title==="ai-work-partner-cache");if(r)process.stdout.write(r.id||"");})')"
+          if [ -z "$KV_ID" ]; then
+            npx wrangler kv namespace create ai-work-partner-cache
+            KV_JSON="$(npx wrangler kv namespace list)"
+            KV_ID="$(printf '%s' "$KV_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.title==="ai-work-partner-cache");if(r)process.stdout.write(r.id||"");})')"
+          fi
+          test -n "$KV_ID"
+          echo "KV_ID=$KV_ID" >> "$GITHUB_ENV"
+
+      - name: Provision Queues
+        run: |
+          set -euo pipefail
+          QUEUE_JSON="$(npx wrangler queues list)"
+          for Q in uden-task-graphs uden-task-graphs-dlq; do
+            EXISTS="$(printf '%s' "$QUEUE_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const name=process.argv[1];process.stdout.write(a.some(v=>v.queue_name===name||v.name===name)?"yes":"no");})' "$Q")"
+            if [ "$EXISTS" != "yes" ]; then
+              npx wrangler queues create "$Q"
+            fi
+          done
+
+      - name: Generate production Wrangler config
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          config.d1_databases[0].database_id = process.env.DB_ID;
+          config.kv_namespaces[0].id = process.env.KV_ID;
+          fs.writeFileSync('wrangler.production.jsonc', JSON.stringify(config, null, 2) + '\n');
+          NODE
+
+      - name: Deploy Worker
+        run: npx wrangler deploy --config wrangler.production.jsonc
+
+      - name: Bootstrap D1 schema and legacy migrations
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_database || github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          TABLES="$(npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'" --json)"
+          if printf '%s' "$TABLES" | grep -q '"tenants"'; then
+            echo "Production schema already exists; skipping one-time bootstrap."
+            exit 0
+          fi
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=src/db/schema.sql
+          for f in migrations/*.sql; do
+            echo "Applying $f"
+            npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file="$f"
+          done
+
+      - name: Publish configured provider secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+        run: |
+          set -euo pipefail
+          put_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              printf '%s' "$value" | npx wrangler secret put "$name" --config wrangler.production.jsonc
+              echo "Published $name"
+            fi
+          }
+          put_secret OPENAI_API_KEY "${OPENAI_API_KEY:-}"
+          put_secret ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
+          put_secret DEEPSEEK_API_KEY "${DEEPSEEK_API_KEY:-}"
+          put_secret GEMINI_API_KEY "${GEMINI_API_KEY:-}"
+          put_secret GOOGLE_AI_API_KEY "${GOOGLE_AI_API_KEY:-}"
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          URL="$(npx wrangler deployments list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const u=a[0]?.url||a[0]?.routes?.[0]?.pattern||"";process.stdout.write(u);})')"
+          if [[ "$URL" != http* ]]; then
+            echo "Deployment completed; Wrangler did not return a direct URL."
+            exit 0
+          fi
+          curl --fail --retry 5 --retry-delay 3 "$URL/api/v1/health"

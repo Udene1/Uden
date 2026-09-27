@@ -1,0 +1,297 @@
+name: Engine Deploy (Cloudflare)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_database:
+        description: "Initialize the production D1 schema and legacy migrations on first deployment"
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches: [main, feat/cloudflare-free-tier-engine]
+    paths:
+      - "packages/engine/**"
+      - "packages/shared/**"
+      - ".github/workflows/engine-deploy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    defaults:
+      run:
+        working-directory: packages/engine
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Verify Cloudflare credentials
+        run: npx wrangler whoami
+
+      - name: Verify workers.dev account subdomain
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --silent --show-error -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          STATUS="$(printf '%s' "$RESPONSE" | tail -n1)"
+          BODY="$(printf '%s' "$RESPONSE" | sed '$d')"
+          echo "workers.dev account subdomain GET status: $STATUS"
+          echo "workers.dev account subdomain GET response: $BODY"
+          test "$STATUS" = "200"
+          SUBDOMAIN="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.result?.subdomain||"");})')"
+          test -n "$SUBDOMAIN"
+          echo "workers.dev account subdomain: $SUBDOMAIN.workers.dev"
+
+      - name: Provision D1 database
+        id: d1
+        run: |
+          set -euo pipefail
+          DB_NAME="ai-work-partner-db"
+          DB_JSON="$(npx wrangler d1 list --json)"
+          DB_ID="$(printf '%s' "$DB_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.name==="ai-work-partner-db");if(r)process.stdout.write(r.uuid||r.id||"");})')"
+          if [ -z "$DB_ID" ]; then
+            npx wrangler d1 create "$DB_NAME"
+            DB_JSON="$(npx wrangler d1 list --json)"
+            DB_ID="$(printf '%s' "$DB_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.name==="ai-work-partner-db");if(r)process.stdout.write(r.uuid||r.id||"");})')"
+          fi
+          test -n "$DB_ID"
+          echo "DB_ID=$DB_ID" >> "$GITHUB_ENV"
+
+      - name: Provision KV namespace
+        id: kv
+        run: |
+          set -euo pipefail
+          KV_JSON="$(npx wrangler kv namespace list)"
+          KV_ID="$(printf '%s' "$KV_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.title==="ai-work-partner-cache");if(r)process.stdout.write(r.id||"");})')"
+          if [ -z "$KV_ID" ]; then
+            npx wrangler kv namespace create ai-work-partner-cache
+            KV_JSON="$(npx wrangler kv namespace list)"
+            KV_ID="$(printf '%s' "$KV_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const r=a.find(v=>v.title==="ai-work-partner-cache");if(r)process.stdout.write(r.id||"");})')"
+          fi
+          test -n "$KV_ID"
+          echo "KV_ID=$KV_ID" >> "$GITHUB_ENV"
+
+      - name: Provision Queues
+        run: |
+          set -euo pipefail
+          QUEUE_LIST="$(npx wrangler queues list)"
+          for Q in uden-task-graphs uden-task-graphs-dlq; do
+            if ! printf '%s\n' "$QUEUE_LIST" | grep -Fq "$Q"; then
+              npx wrangler queues create "$Q"
+              QUEUE_LIST="$(npx wrangler queues list)"
+            fi
+          done
+
+      - name: Generate production Wrangler config
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          // Free-tier production deliberately excludes Cloudflare Containers/Sandbox.
+          // The capability remains in src/index.sandbox.ts and the repository Dockerfile
+          // for the later Workers Paid deployment.
+          config.main = 'src/index.ts';
+          config.workers_dev = true;
+          delete config.containers;
+          delete config.durable_objects;
+          delete config.migrations;
+          // Workflows are free-tier compatible, but this deployment token currently
+          // lacks the permission required by Cloudflare's Workflow API. The engine
+          // has an equivalent Queue fallback in scheduled(), so keep the free-tier
+          // deployment operational until Workflow API permission is added.
+          delete config.workflows;
+          config.d1_databases[0].database_id = process.env.DB_ID;
+          config.kv_namespaces[0].id = process.env.KV_ID;
+          fs.writeFileSync('wrangler.production.jsonc', JSON.stringify(config, null, 2) + '\n');
+          if (config.containers || config.durable_objects || config.migrations) {
+            throw new Error('Paid Sandbox/Containers configuration leaked into the Free-tier deployment config');
+          }
+          NODE
+
+      - name: Verify Free-tier deployment config
+        run: |
+          set -euo pipefail
+          if grep -Eq '"(containers|durable_objects|migrations)"[[:space:]]*:' wrangler.production.jsonc; then
+            echo "Paid Sandbox/Containers configuration is present in the production config"
+            exit 1
+          fi
+          grep -q '"main": "src/index.ts"' wrangler.production.jsonc
+          if grep -Eq '"workflows"[[:space:]]*:' wrangler.production.jsonc; then
+            echo "Workflow binding leaked into the free-tier deployment config"
+            exit 1
+          fi
+
+      - name: Deploy Worker
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.production.jsonc \
+            --message "github:${GITHUB_SHA}" \
+            --tag "github-${GITHUB_SHA:0:12}"
+
+      - name: Verify active Cloudflare deployment
+        run: |
+          set -euo pipefail
+          npx wrangler deployments status --name ai-work-partner-engine --json > deployment-status.json
+          npx wrangler deployments list --name ai-work-partner-engine --json > deployment-list.json
+          cat deployment-status.json
+          cat deployment-list.json
+          grep -q "$GITHUB_SHA" deployment-list.json
+          echo "Cloudflare deployment is associated with commit $GITHUB_SHA"
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('deployment-list.json', 'utf8');
+          const value = JSON.parse(raw);
+          const list = Array.isArray(value) ? value : (value.result || value.deployments || []);
+          const deployment = list.find((item) => JSON.stringify(item).includes(process.env.GITHUB_SHA));
+          if (!deployment) throw new Error('Could not locate the deployed commit in Cloudflare deployment history');
+          fs.writeFileSync('deployment-receipt.json', JSON.stringify({commit: process.env.GITHUB_SHA, worker: 'ai-work-partner-engine', deployment}, null, 2) + '\n');
+          NODE
+
+      - name: Bootstrap D1 schema and legacy migrations
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_database || github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          TABLES="$(npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'" --json)"
+          if printf '%s' "$TABLES" | grep -q '"tenants"'; then
+            echo "Production schema already exists; skipping one-time bootstrap."
+            exit 0
+          fi
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=src/db/schema.sql
+          for f in migrations/*.sql; do
+            echo "Applying $f"
+            npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file="$f"
+          done
+
+      - name: Publish configured provider secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+        run: |
+          set -euo pipefail
+          put_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              printf '%s' "$value" | npx wrangler secret put "$name" --config wrangler.production.jsonc
+              echo "Published $name"
+            fi
+          }
+          put_secret OPENAI_API_KEY "${OPENAI_API_KEY:-}"
+          put_secret ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
+          put_secret DEEPSEEK_API_KEY "${DEEPSEEK_API_KEY:-}"
+          put_secret GEMINI_API_KEY "${GEMINI_API_KEY:-}"
+          put_secret GOOGLE_AI_API_KEY "${GOOGLE_AI_API_KEY:-}"
+
+      - name: Production health check
+        run: |
+          set -euo pipefail
+          URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+          curl --fail --retry 5 --retry-delay 3 "$URL/api/v1/health" -o health-response.json
+          cat health-response.json
+
+      - name: Production authentication smoke test
+        run: |
+          set -euo pipefail
+          URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+          TENANT_ID=""
+          cleanup() {
+            if [ -n "$TENANT_ID" ]; then
+              set +e
+              npx wrangler d1 execute DB --remote --config wrangler.production.jsonc \
+                --command "DELETE FROM tenants WHERE id='$TENANT_ID'" >/tmp/uden-smoke-cleanup.log 2>&1
+              cat /tmp/uden-smoke-cleanup.log
+            fi
+          }
+          trap cleanup EXIT
+
+          RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "$URL/api/v1/tenants" \
+            --data "{\"name\":\"CI deployment smoke ${GITHUB_RUN_ID}\",\"email\":\"ci-${GITHUB_RUN_ID}@smoke.invalid\"}")"
+          STATUS="$(printf '%s' "$RESPONSE" | tail -n1)"
+          BODY="$(printf '%s' "$RESPONSE" | sed '$d')"
+          test "$STATUS" = "201"
+
+          API_KEY="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.api_key||"");})')"
+          TENANT_ID="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.tenant?.id||"");})' )"
+          test -n "$API_KEY"
+          test -n "$TENANT_ID"
+
+          AUTH_RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' \
+            -H "Authorization: Bearer $API_KEY" "$URL/api/v1/tenant")"
+          AUTH_STATUS="$(printf '%s' "$AUTH_RESPONSE" | tail -n1)"
+          test "$AUTH_STATUS" = "200"
+          echo "Production authentication smoke test: PASS"
+
+      - name: Write deployment receipt and summary
+        if: ${{ always() }}
+        env:
+          DEPLOYMENT_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipt = {
+              "workflow": "Engine Deploy (Cloudflare)",
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "commit": os.environ["GITHUB_SHA"],
+              "ref": os.environ["GITHUB_REF_NAME"],
+              "worker": "ai-work-partner-engine",
+              "url": "https://ai-work-partner-engine.uden-production-deployment.workers.dev",
+              "status": os.environ["DEPLOYMENT_STATUS"],
+          }
+          for name in ("deployment-status.json", "deployment-list.json", "health-response.json"):
+              path = Path(name)
+              if path.exists():
+                  try: receipt[name[:-5]] = json.loads(path.read_text())
+                  except Exception: receipt[name[:-5]] = path.read_text()
+          Path("deployment-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          print(json.dumps(receipt, indent=2))
+          PY
+          {
+            echo "## Cloudflare deployment"
+            echo
+            echo "- **Commit:** \`$GITHUB_SHA\`"
+            echo "- **Worker:** \`ai-work-partner-engine\`"
+            echo "- **URL:** https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+            echo "- **Job status:** \`$DEPLOYMENT_STATUS\`"
+            if [ -f health-response.json ]; then echo "- **Health check:** PASS"; else echo "- **Health check:** NOT REACHED"; fi
+            if [ "$DEPLOYMENT_STATUS" = "success" ]; then echo "- **Deployment verification:** PASS"; else echo "- **Deployment verification:** FAILED"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload deployment receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-deployment-receipt-${{ github.run_id }}
+          path: |
+            packages/engine/deployment-receipt.json
+            packages/engine/deployment-status.json
+            packages/engine/deployment-list.json
+            packages/engine/health-response.json
+          if-no-files-found: warn
+          retention-days: 14

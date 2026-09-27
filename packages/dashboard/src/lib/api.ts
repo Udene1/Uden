@@ -15,7 +15,7 @@ const ENGINE_URL = process.env.ENGINE_URL || process.env.NEXT_PUBLIC_ENGINE_URL 
 class ApiClient {
  private base = typeof window === 'undefined'
   ? `${ENGINE_URL}/api/v1`
-  : process.env.NEXT_PUBLIC_ENGINE_URL || '/api/backend';
+  : '/api/backend';
  private async fetcher<T>(endpoint:string,options:RequestInit={},apiKey?:string):Promise<T>{const headers:Record<string,string>={'Content-Type':'application/json'};if(!apiKey && typeof window !== 'undefined'){const session=await getSession();apiKey=(session as {apiKey?:string}|null)?.apiKey;}if(apiKey)headers.Authorization=`Bearer ${apiKey}`;const response=await fetch(`${this.base}${endpoint}`,{...options,headers:{...headers,...(options.headers as Record<string,string>|undefined)}});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`API Error: ${response.status}`);}return response.json();}
  async registerTenant(name:string, email=''):Promise<{apiKey:string}>{const result=await this.fetcher<{api_key:string}>('/tenants',{method:'POST',body:JSON.stringify({name,email})});return {apiKey:result.api_key};}
  async getCurrentTenant(apiKey:string):Promise<{tenant:Tenant}>{return this.fetcher('/tenant',{},apiKey);}

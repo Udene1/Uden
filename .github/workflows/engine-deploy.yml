@@ -78,11 +78,11 @@ jobs:
       - name: Provision Queues
         run: |
           set -euo pipefail
-          QUEUE_JSON="$(npx wrangler queues list)"
+          QUEUE_LIST="$(npx wrangler queues list)"
           for Q in uden-task-graphs uden-task-graphs-dlq; do
-            EXISTS="$(printf '%s' "$QUEUE_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const name=process.argv[1];process.stdout.write(a.some(v=>v.queue_name===name||v.name===name)?"yes":"no");})' "$Q")"
-            if [ "$EXISTS" != "yes" ]; then
+            if ! printf '%s\n' "$QUEUE_LIST" | grep -Fq "$Q"; then
               npx wrangler queues create "$Q"
+              QUEUE_LIST="$(npx wrangler queues list)"
             fi
           done
 

@@ -127,6 +127,11 @@ jobs:
           delete config.containers;
           delete config.durable_objects;
           delete config.migrations;
+          // Workflows are free-tier compatible, but this deployment token currently
+          // lacks the permission required by Cloudflare's Workflow API. The engine
+          // has an equivalent Queue fallback in scheduled(), so keep the free-tier
+          // deployment operational until Workflow API permission is added.
+          delete config.workflows;
           config.d1_databases[0].database_id = process.env.DB_ID;
           config.kv_namespaces[0].id = process.env.KV_ID;
           fs.writeFileSync('wrangler.production.jsonc', JSON.stringify(config, null, 2) + '\n');
@@ -143,6 +148,10 @@ jobs:
             exit 1
           fi
           grep -q '"main": "src/index.ts"' wrangler.production.jsonc
+          if grep -Eq '"workflows"[[:space:]]*:' wrangler.production.jsonc; then
+            echo "Workflow binding leaked into the free-tier deployment config"
+            exit 1
+          fi
 
       - name: Deploy Worker
         run: npx wrangler deploy --config wrangler.production.jsonc

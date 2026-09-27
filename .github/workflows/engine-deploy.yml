@@ -49,8 +49,8 @@ jobs:
       - name: Ensure workers.dev account subdomain
         run: |
           set -euo pipefail
-          SUBDOMAIN_JSON="$(curl --fail --silent --show-error \\
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \\
+          SUBDOMAIN_JSON="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
           SUBDOMAIN="$(printf '%s' "$SUBDOMAIN_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.result?.subdomain||"");})')"
           if [ -n "$SUBDOMAIN" ]; then
@@ -58,11 +58,11 @@ jobs:
             exit 0
           fi
           echo "No workers.dev account subdomain is configured; creating the Uden account subdomain."
-          curl --fail --silent --show-error \\
-            -X PUT \\
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \\
-            -H "Content-Type: application/json" \\
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \\
+          curl --fail --silent --show-error \
+            -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
             --data '{"subdomain":"uden"}'
           echo
 

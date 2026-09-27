@@ -2,6 +2,9 @@
 // System Constants & Configuration
 // ─────────────────────────────────────────────
 
+/** Production Cloudflare Worker used by native/mobile clients unless overridden by environment configuration. */
+export const DEFAULT_ENGINE_URL = 'https://ai-work-partner-engine.uden-production-deployment.workers.dev';
+
 /** Maximum number of escalation attempts per task */
 export const MAX_ESCALATION_ATTEMPTS = 3;
 

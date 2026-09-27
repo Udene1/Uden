@@ -22,7 +22,10 @@ export default function RegisterPage() {
         setGeneratedKey(res.apiKey);
       }
     } catch (error) {
-      alert('Registration failed');
+      const message =
+        error instanceof Error ? error.message : 'Unknown registration error';
+      console.error('Registration failed:', error);
+      alert(`Registration failed: ${message}`);
     } finally {
       setIsLoading(false);
     }

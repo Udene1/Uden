@@ -1,4 +1,5 @@
 import { getSession } from 'next-auth/react';
+import { DEFAULT_ENGINE_URL } from '@ai-work-partner/shared';
 
 export type TaskStatus = 'pending' | 'classifying' | 'routing' | 'processing' | 'quality-check' | 'escalating' | 'completed' | 'failed' | 'awaiting-approval' | 'approved' | 'rejected';
 export type TaskMode = 'permissionless' | 'permission-based';
@@ -9,7 +10,7 @@ export interface UsageSummary { totalCostCents:number; totalTokensIn:number; tot
 export interface GraphAnalytics { totals:Record<string,number>; escalation:Record<string,number>; byDomain:Array<Record<string,any>>; byModel:Array<Record<string,any>>; recentGraphs:Array<Record<string,any>>; }
 export interface AnalyticsResponse { analytics:GraphAnalytics; savings:{actualCostCents:number;primaryAttemptCostCents:number;escalationCostCents:number;routingSavingsCents:number}; }
 export interface UpdateTenant { name?:string; qualityPreference?:QualityPreference; monthlyBudgetCents?:number; defaultMode?:TaskMode; bringOwnKeys?:boolean; }
-const ENGINE_URL = process.env.ENGINE_URL || process.env.NEXT_PUBLIC_ENGINE_URL || 'https://ai-work-partner-engine.uden-production-deployment.workers.dev';
+const ENGINE_URL = process.env.ENGINE_URL || process.env.NEXT_PUBLIC_ENGINE_URL || DEFAULT_ENGINE_URL;
 
 class ApiClient {
  private base = typeof window === 'undefined'

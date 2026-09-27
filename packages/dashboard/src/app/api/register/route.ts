@@ -24,3 +24,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Engine unavailable' }, { status: 502 });
   }
 }
+
+// Keep this route change scoped to the dashboard so Vercel monorepo change detection deploys it.

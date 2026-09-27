@@ -141,7 +141,30 @@ jobs:
           fi
 
       - name: Deploy Worker
-        run: npx wrangler deploy --config wrangler.production.jsonc
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.production.jsonc \
+            --message "github:${GITHUB_SHA}" \
+            --tag "github-${GITHUB_SHA:0:12}"
+
+      - name: Verify active Cloudflare deployment
+        run: |
+          set -euo pipefail
+          npx wrangler deployments status --name ai-work-partner-engine --json > deployment-status.json
+          npx wrangler deployments list --name ai-work-partner-engine --json > deployment-list.json
+          cat deployment-status.json
+          cat deployment-list.json
+          grep -q "$GITHUB_SHA" deployment-list.json
+          echo "Cloudflare deployment is associated with commit $GITHUB_SHA"
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('deployment-list.json', 'utf8');
+          const value = JSON.parse(raw);
+          const list = Array.isArray(value) ? value : (value.result || value.deployments || []);
+          const deployment = list.find((item) => JSON.stringify(item).includes(process.env.GITHUB_SHA));
+          if (!deployment) throw new Error('Could not locate the deployed commit in Cloudflare deployment history');
+          fs.writeFileSync('deployment-receipt.json', JSON.stringify({commit: process.env.GITHUB_SHA, worker: 'ai-work-partner-engine', deployment}, null, 2) + '\n');
+          NODE
 
       - name: Bootstrap D1 schema and legacy migrations
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_database || github.event_name == 'push' }}
@@ -181,8 +204,94 @@ jobs:
           put_secret GEMINI_API_KEY "${GEMINI_API_KEY:-}"
           put_secret GOOGLE_AI_API_KEY "${GOOGLE_AI_API_KEY:-}"
 
-      - name: Health check
+      - name: Production health check
         run: |
           set -euo pipefail
           URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
-          curl --fail --retry 5 --retry-delay 3 "$URL/api/v1/health"
+          curl --fail --retry 5 --retry-delay 3 "$URL/api/v1/health" -o health-response.json
+          cat health-response.json
+
+      - name: Production authentication smoke test
+        run: |
+          set -euo pipefail
+          URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+          TENANT_ID=""
+          cleanup() {
+            if [ -n "$TENANT_ID" ]; then
+              set +e
+              npx wrangler d1 execute DB --remote --config wrangler.production.jsonc \
+                --command "DELETE FROM tenants WHERE id='$TENANT_ID'" >/tmp/uden-smoke-cleanup.log 2>&1
+              cat /tmp/uden-smoke-cleanup.log
+            fi
+          }
+          trap cleanup EXIT
+
+          RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "$URL/api/v1/tenants" \
+            --data "{\"name\":\"CI deployment smoke ${GITHUB_RUN_ID}\",\"email\":\"ci-${GITHUB_RUN_ID}@smoke.invalid\"}")"
+          STATUS="$(printf '%s' "$RESPONSE" | tail -n1)"
+          BODY="$(printf '%s' "$RESPONSE" | sed '$d')"
+          test "$STATUS" = "201"
+
+          API_KEY="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.api_key||"");})')"
+          TENANT_ID="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.tenant?.id||"");})' )"
+          test -n "$API_KEY"
+          test -n "$TENANT_ID"
+
+          AUTH_RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' \
+            -H "Authorization: Bearer $API_KEY" "$URL/api/v1/tenant")"
+          AUTH_STATUS="$(printf '%s' "$AUTH_RESPONSE" | tail -n1)"
+          test "$AUTH_STATUS" = "200"
+          echo "Production authentication smoke test: PASS"
+
+      - name: Write deployment receipt and summary
+        if: ${{ always() }}
+        env:
+          DEPLOYMENT_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipt = {
+              "workflow": "Engine Deploy (Cloudflare)",
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "commit": os.environ["GITHUB_SHA"],
+              "ref": os.environ["GITHUB_REF_NAME"],
+              "worker": "ai-work-partner-engine",
+              "url": "https://ai-work-partner-engine.uden-production-deployment.workers.dev",
+              "status": os.environ["DEPLOYMENT_STATUS"],
+          }
+          for name in ("deployment-status.json", "deployment-list.json", "health-response.json"):
+              path = Path(name)
+              if path.exists():
+                  try: receipt[name[:-5]] = json.loads(path.read_text())
+                  except Exception: receipt[name[:-5]] = path.read_text()
+          Path("deployment-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          print(json.dumps(receipt, indent=2))
+          PY
+          {
+            echo "## Cloudflare deployment"
+            echo
+            echo "- **Commit:** \`$GITHUB_SHA\`"
+            echo "- **Worker:** \`ai-work-partner-engine\`"
+            echo "- **URL:** https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+            echo "- **Job status:** \`$DEPLOYMENT_STATUS\`"
+            if [ -f health-response.json ]; then echo "- **Health check:** PASS"; else echo "- **Health check:** NOT REACHED"; fi
+            if [ "$DEPLOYMENT_STATUS" = "success" ]; then echo "- **Deployment verification:** PASS"; else echo "- **Deployment verification:** FAILED"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload deployment receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-deployment-receipt-${{ github.run_id }}
+          path: |
+            packages/engine/deployment-receipt.json
+            packages/engine/deployment-status.json
+            packages/engine/deployment-list.json
+            packages/engine/health-response.json
+          if-no-files-found: warn
+          retention-days: 14

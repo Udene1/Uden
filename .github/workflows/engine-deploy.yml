@@ -95,7 +95,7 @@ jobs:
           // The capability remains in src/index.sandbox.ts and the repository Dockerfile
           // for the later Workers Paid deployment.
           config.main = 'src/index.ts';
-config.workers_dev = true;
+          config.workers_dev = true;
           delete config.containers;
           delete config.durable_objects;
           delete config.migrations;

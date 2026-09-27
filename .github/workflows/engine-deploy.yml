@@ -181,6 +181,11 @@ jobs:
             npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file="$f"
           done
 
+      - name: Ensure registration permission tables exist
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=migrations/0042_registration_permission_tables.sql
+
       - name: Publish configured provider secrets
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

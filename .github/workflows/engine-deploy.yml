@@ -9,7 +9,7 @@ on:
         default: true
         type: boolean
   push:
-    branches: [main]
+    branches: [main, feat/cloudflare-free-tier-engine]
     paths:
       - "packages/engine/**"
       - "packages/shared/**"
@@ -91,10 +91,29 @@ jobs:
           node - <<'NODE'
           const fs = require('fs');
           const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          // Free-tier production deliberately excludes Cloudflare Containers/Sandbox.
+          // The capability remains in src/index.sandbox.ts and the repository Dockerfile
+          // for the later Workers Paid deployment.
+          config.main = 'src/index.ts';
+          delete config.containers;
+          delete config.durable_objects;
+          delete config.migrations;
           config.d1_databases[0].database_id = process.env.DB_ID;
           config.kv_namespaces[0].id = process.env.KV_ID;
           fs.writeFileSync('wrangler.production.jsonc', JSON.stringify(config, null, 2) + '\n');
+          if (config.containers || config.durable_objects || config.migrations) {
+            throw new Error('Paid Sandbox/Containers configuration leaked into the Free-tier deployment config');
+          }
           NODE
+
+      - name: Verify Free-tier deployment config
+        run: |
+          set -euo pipefail
+          if grep -Eq '"(containers|durable_objects|migrations)"[[:space:]]*:' wrangler.production.jsonc; then
+            echo "Paid Sandbox/Containers configuration is present in the production config"
+            exit 1
+          fi
+          grep -q '"main": "src/index.ts"' wrangler.production.jsonc
 
       - name: Deploy Worker
         run: npx wrangler deploy --config wrangler.production.jsonc

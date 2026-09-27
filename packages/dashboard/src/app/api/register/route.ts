@@ -8,21 +8,29 @@ const ENGINE_URL =
 export async function POST(request: NextRequest) {
   const upstream = new URL('/api/v1/tenants', ENGINE_URL);
   try {
-    const body = await request.arrayBuffer();
+    const body = await request.json().catch(() => ({}));
     const response = await fetch(upstream, {
       method: 'POST',
-      headers: { 'content-type': request.headers.get('content-type') || 'application/json' },
-      body,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...body, client: 'web' }),
     });
-    const responseBody = await response.arrayBuffer();
-    const headers = new Headers();
-    headers.set('content-type', response.headers.get('content-type') || 'application/json');
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return NextResponse.json(result, { status: response.status });
+
+    if (result.api_key) {
+      const sessionResponse = await fetch(new URL('/api/v1/auth/session', ENGINE_URL), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ apiKey: result.api_key, client: 'web' }),
+      });
+      const session = await sessionResponse.json().catch(() => ({}));
+      if (sessionResponse.ok) Object.assign(result, session);
+    }
+
     console.info('registration_proxy', { upstream: upstream.toString(), status: response.status });
-    return new NextResponse(responseBody, { status: response.status, headers });
+    return NextResponse.json(result, { status: response.status });
   } catch (error) {
     console.error('registration_proxy_error', { upstream: upstream.toString(), error });
     return NextResponse.json({ error: 'Engine unavailable' }, { status: 502 });
   }
 }
-
-// Keep this route change scoped to the dashboard so Vercel monorepo change detection deploys it.

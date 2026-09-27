@@ -15,19 +15,11 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({ ...body, client: 'web' }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) return NextResponse.json(result, { status: response.status });
-
-    if (result.api_key) {
-      const sessionResponse = await fetch(new URL('/api/v1/auth/session', ENGINE_URL), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ apiKey: result.api_key, client: 'web' }),
-      });
-      const session = await sessionResponse.json().catch(() => ({}));
-      if (sessionResponse.ok) Object.assign(result, session);
-    }
-
-    console.info('registration_proxy', { upstream: upstream.toString(), status: response.status });
+    console.info('registration_proxy', {
+      upstream: upstream.toString(),
+      status: response.status,
+      hasSession: Boolean(result.session_token),
+    });
     return NextResponse.json(result, { status: response.status });
   } catch (error) {
     console.error('registration_proxy_error', { upstream: upstream.toString(), error });

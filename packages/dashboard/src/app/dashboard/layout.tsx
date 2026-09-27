@@ -12,7 +12,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col md:overflow-hidden">
           <Header />
-          <main id="workspace-main" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-5 pb-28 outline-none md:p-6 md:pb-6">
+          <main id="workspace-main" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-6 pb-28 outline-none md:px-8 md:py-8 md:pb-8">
             <div className="container">{children}</div>
           </main>
           <MobileActionBar />

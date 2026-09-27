@@ -46,7 +46,7 @@ jobs:
       - name: Verify Cloudflare credentials
         run: npx wrangler whoami
 
-      - name: Ensure workers.dev account subdomain
+      - name: Verify workers.dev account subdomain
         run: |
           set -euo pipefail
           RESPONSE="$(curl --silent --show-error -w '\\n%{http_code}' \
@@ -56,23 +56,10 @@ jobs:
           BODY="$(printf '%s' "$RESPONSE" | sed '$d')"
           echo "workers.dev account subdomain GET status: $STATUS"
           echo "workers.dev account subdomain GET response: $BODY"
-          SUBDOMAIN="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const x=JSON.parse(s);process.stdout.write(x.result?.subdomain||"");}catch{}})')"
-          if [ -n "$SUBDOMAIN" ]; then
-            echo "workers.dev account subdomain already configured: $SUBDOMAIN.workers.dev"
-            exit 0
-          fi
-          echo "No workers.dev account subdomain is configured; attempting to create the Uden account subdomain."
-          CREATE_RESPONSE="$(curl --silent --show-error -w '\\n%{http_code}' \
-            -X PUT \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
-            --data '{"subdomain":"uden"}')"
-          CREATE_STATUS="$(printf '%s' "$CREATE_RESPONSE" | tail -n1)"
-          CREATE_BODY="$(printf '%s' "$CREATE_RESPONSE" | sed '$d')"
-          echo "workers.dev account subdomain PUT status: $CREATE_STATUS"
-          echo "workers.dev account subdomain PUT response: $CREATE_BODY"
-          test "$CREATE_STATUS" = "200"
+          test "$STATUS" = "200"
+          SUBDOMAIN="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.result?.subdomain||"");})')"
+          test -n "$SUBDOMAIN"
+          echo "workers.dev account subdomain: $SUBDOMAIN.workers.dev"
 
       - name: Provision D1 database
         id: d1
@@ -197,9 +184,5 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          URL="$(npx wrangler deployments list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const a=Array.isArray(x)?x:(x.result||[]);const u=a[0]?.url||a[0]?.routes?.[0]?.pattern||"";process.stdout.write(u);})')"
-          if [[ "$URL" != http* ]]; then
-            echo "Deployment completed; Wrangler did not return a direct URL."
-            exit 0
-          fi
+          URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
           curl --fail --retry 5 --retry-delay 3 "$URL/api/v1/health"

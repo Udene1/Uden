@@ -1,5 +1,6 @@
 name: Engine Deploy (Cloudflare)
 # Redeploy trigger: activate current Cloudflare Worker secrets.
+# Gemini-only secret publication test.
 
 on:
   workflow_dispatch:

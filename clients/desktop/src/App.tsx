@@ -31,9 +31,9 @@ function Connection({ onConnected }: { onConnected: (api: EngineApi, url: string
         setKey(resolvedKey);
       }
       if (!resolvedKey) throw new Error('API key is required.');
-      await new EngineApi(base, resolvedKey).getTenant();
+      await EngineApi.fromApiKey(base, resolvedKey).then((client) => client.getTenant());
       localStorage.setItem(URL_KEY, base); localStorage.setItem(KEY_KEY, resolvedKey);
-      onConnected(new EngineApi(base, resolvedKey), base);
+      onConnected(await EngineApi.fromApiKey(base, resolvedKey), base);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to connect to Uden.'); }
     finally { setBusy(false); }
   };
@@ -65,7 +65,7 @@ function Detail({ task, onClose, onApprove, approving }: { task: Task; onClose: 
 export default function App() {
   const [api, setApi] = useState<EngineApi | null>(null); const [engineUrl, setEngineUrl] = useState(''); const [tasks, setTasks] = useState<Task[]>([]); const [selected, setSelected] = useState<Task | null>(null); const [graphs, setGraphs] = useState<any[]>([]); const [selectedGraph, setSelectedGraph] = useState<any | null>(null); const [pendingGraph, setPendingGraph] = useState<{ plan: unknown; reasons: string[] } | null>(null); const [prompt, setPrompt] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState(''); const capabilities = CLIENT_CAPABILITIES.desktop;
   const load = useCallback(async (client: EngineApi, manual = false) => { if (manual) setRefreshing(true); try { const [next, graphResult] = await Promise.all([client.getTasks(), client.getGraphs()]); setTasks(next); setGraphs(graphResult.graphs); setSelected(current => current ? next.find(t => t.id === current.id) ?? current : null); setError(''); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load work.'); } finally { if (manual) setRefreshing(false); } }, []);
-  useEffect(() => { const url = localStorage.getItem(URL_KEY); const key = localStorage.getItem(KEY_KEY); if (!url || !key) { setLoading(false); return; } const client = new EngineApi(url, key); client.getTenant().then(() => { setApi(client); setEngineUrl(url); return load(client); }).catch(e => setError(e instanceof Error ? e.message : 'Saved connection is unavailable.')).finally(() => setLoading(false)); }, [load]);
+  useEffect(() => { const url = localStorage.getItem(URL_KEY); const key = localStorage.getItem(KEY_KEY); if (!url || !key) { setLoading(false); return; } EngineApi.fromApiKey(url, key).then((client) => client.getTenant().then(() => { setApi(client); setEngineUrl(url); return load(client); })).catch(e => setError(e instanceof Error ? e.message : 'Saved connection is unavailable.')).finally(() => setLoading(false)); }, [load]);
   useEffect(() => { if (!api || !tasks.some(t => activeStatuses.includes(t.status))) return; const timer = window.setInterval(() => void load(api), 3000); return () => window.clearInterval(timer); }, [api, tasks, load]);
   const approvals = useMemo(() => tasks.filter(t => t.status === 'awaiting-approval'), [tasks]); const active = useMemo(() => tasks.filter(t => activeStatuses.includes(t.status)), [tasks]); const results = useMemo(() => tasks.filter(t => ['completed', 'failed', 'rejected'].includes(t.status)), [tasks]);
   const create = async () => {

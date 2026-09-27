@@ -1,3 +1,4 @@
+import { DEFAULT_ENGINE_URL } from '@ai-work-partner/shared';
 export type TaskStatus = 'pending' | 'classifying' | 'routing' | 'processing' | 'quality-check' | 'escalating' | 'completed' | 'failed' | 'awaiting-approval' | 'approved' | 'rejected';
 
 export interface Tenant { id: string; name: string; email?: string; }
@@ -69,4 +70,4 @@ export class EngineApi {
   }
 }
 
-export const defaultEngineUrl = () => import.meta.env.VITE_ENGINE_URL || '/api/v1';
+export const defaultEngineUrl = () => import.meta.env.VITE_ENGINE_URL || DEFAULT_ENGINE_URL;

@@ -1,3 +1,4 @@
+import { DEFAULT_ENGINE_URL } from '@ai-work-partner/shared';
 export type TaskStatus =
   | 'pending'
   | 'classifying'
@@ -36,7 +37,7 @@ export interface Task {
   completedAt?: string;
 }
 
-const DEFAULT_BASE = process.env.EXPO_PUBLIC_ENGINE_URL || 'http://localhost:8787/api/v1';
+const DEFAULT_BASE = process.env.EXPO_PUBLIC_ENGINE_URL || `${DEFAULT_ENGINE_URL}/api/v1`;
 
 export class EngineApi {
   constructor(private readonly baseUrl: string, private readonly apiKey: string) {}

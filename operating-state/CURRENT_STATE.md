@@ -1,6 +1,6 @@
 # Current State
 
-_Last updated: 2026-09-20_
+_Last updated: 2026-09-27_
 
 ## Primary objective
 
@@ -25,6 +25,8 @@ Private research project exploring artificial cognitive capabilities. Current me
 
 ### Uden
 Persistent AI operating system for long-running objectives, state, evidence, recovery, and reality across agents. This operating-state directory is itself part of the problem Uden should eventually solve.
+
+Current implementation state (2026-09-27): the production backend is the Cloudflare Worker at `https://ai-work-partner-engine.uden-production-deployment.workers.dev`. The web dashboard reaches it through the Next.js same-origin `/api/backend/*` proxy. Desktop and Android/mobile clients now default to the same production Worker, while retaining environment overrides for development or alternate deployments. Tenant authentication and durable graph/task execution are already exposed through the backend; the remaining work is client-by-client verification and fixing any capability/API gaps discovered in real use.
 
 ## Immediate commercial loop
 

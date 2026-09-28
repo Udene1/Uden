@@ -268,8 +268,8 @@ jobs:
           set -euo pipefail
           URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
           WORKDIR="$(mktemp -d)"
-          TENANT_A=""; TENANT_B=""
-          cleanup() { set +e; for ID in "$TENANT_A" "$TENANT_B"; do if [ -n "$ID" ]; then npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "DELETE FROM tenants WHERE id='$ID'" >/dev/null 2>&1; fi; done; rm -rf "$WORKDIR"; }
+          TENANT_A=""; TENANT_B=""; TENANT_C=""
+          cleanup() { set +e; for ID in "$TENANT_A" "$TENANT_B" "$TENANT_C"; do if [ -n "$ID" ]; then npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "DELETE FROM tenants WHERE id='$ID'" >/dev/null 2>&1; fi; done; rm -rf "$WORKDIR"; }
           trap cleanup EXIT
           call() {
             local name="$1" method="$2" path="$3" body="$4" token="$5"
@@ -308,6 +308,7 @@ jobs:
           # Negative contract checks
           call malformed_api_key POST /api/v1/auth/session '{"apiKey":"not-an-api-key","client":"web"}' ""; test "$STATUS" = "401"
           call malformed_session GET /api/v1/tenant "" "not-a-session"; test "$STATUS" = "401"
+          call wrong_registration_client POST /api/v1/tenants "{\"name\":\"CI invalid client $GITHUB_RUN_ID\",\"email\":\"ci-invalid-client-$GITHUB_RUN_ID@smoke.invalid\",\"client\":\"tablet\"}" ""; test "$STATUS" = "400"
           call wrong_client POST /api/v1/auth/session "{\"apiKey\":\"$API_KEY\",\"client\":\"tablet\"}" ""; test "$STATUS" = "400"
 
           call logout_twice POST /api/v1/auth/logout "" "$SESSION_DESKTOP"; test "$STATUS" = "200"
@@ -332,6 +333,13 @@ jobs:
           test "$SUBJECT_TEST_RETURNED" = "tenant:$SUBJECT_TEST_TENANT"
           TENANT_C="$SUBJECT_TEST_TENANT"
           echo "registration_session_verified=true"
+          echo "malformed_api_key_rejected=true"
+          echo "malformed_session_rejected=true"
+          echo "expired_session_rejected=true"
+          echo "principal_tenant_mismatch_rejected=true"
+          echo "arbitrary_subject_ignored=true"
+          echo "invalid_client_rejected=true"
+          echo "logout_idempotent=true"
           echo "session_revocation_verified=true"
           echo "api_key_to_session_verified=true"
           echo "invalid_credentials_rejected=true"

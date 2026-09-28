@@ -73,7 +73,12 @@ export default function TaskDetail() {
     if (!task || task.status !== 'awaiting-approval') return;
     setApproving(true); setError(null);
     try { setTask(await api.approveTask(task.id)); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Unable to record approval.'); }
+    catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to record approval.');
+      // Approval may trigger execution synchronously. Refresh the authoritative task
+      // state when execution fails so the UI cannot remain stuck on awaiting approval.
+      await loadTask(true);
+    }
     finally { setApproving(false); }
   }
 

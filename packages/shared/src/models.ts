@@ -4,6 +4,11 @@
 
 import type { ModelConfig, ModelTier, QualityPreference, TaskDomain } from './types';
 
+/** Remove an optional execution connection prefix before registry lookups. */
+function registryModelId(modelId: string): string {
+  return modelId.startsWith('agentrouter/') ? modelId.slice('agentrouter/'.length) : modelId;
+}
+
 /**
  * Complete model registry with pricing (costs in cents per million tokens).
  * Pricing is approximate as of mid-2026 — update as providers change rates.
@@ -142,7 +147,7 @@ export function getModelsForDomain(domain: TaskDomain): ModelConfig[] {
  * Calculate the estimated cost in cents for a given model and token counts.
  */
 export function estimateCost(modelId: string, tokensIn: number, tokensOut: number): number {
-  const model = MODEL_REGISTRY[modelId];
+  const model = MODEL_REGISTRY[registryModelId(modelId)];
   if (!model) return 0;
   const inputCost = (tokensIn / 1_000_000) * model.inputCostPerMillion;
   const outputCost = (tokensOut / 1_000_000) * model.outputCostPerMillion;

@@ -48,6 +48,10 @@ export class AnthropicProvider {
       result: textBlock?.text || '',
       promptTokens: data.usage?.input_tokens || 0,
       completionTokens: data.usage?.output_tokens || 0,
+      cachedTokens: data.usage?.cache_read_input_tokens || 0,
+      reasoningTokens: 0,
+      actualModel: typeof data.model === 'string' ? data.model : modelId,
+      requestId: typeof data.id === 'string' ? data.id : undefined,
       finishReason: data.stop_reason || 'stop',
       latencyMs
     };

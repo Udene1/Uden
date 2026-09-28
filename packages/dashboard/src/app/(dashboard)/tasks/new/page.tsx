@@ -12,9 +12,7 @@ const examples = [
 ];
 
 export default function NewTaskPage() {
-  const { data: session } = useSession();
   const router = useRouter();
-  const apiKey = (session as any)?.apiKey as string | undefined;
   const [prompt, setPrompt] = useState('');
   const [mode, setMode] = useState<TaskMode>('permission-based');
   const [creating, setCreating] = useState(false);

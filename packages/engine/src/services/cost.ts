@@ -1,7 +1,7 @@
 import { HonoEnv } from '../types';
 import { createUsageRecord, getMonthlySpend, getTenantById } from '../db/queries';
 import { MODEL_REGISTRY, estimateCost, AIProvider } from '@ai-work-partner/shared';
-import type { ExecutionFence } from './execution-side-effects';
+import { recordFencedUsage, type ExecutionFence } from './execution-side-effects';
 
 export async function getBudgetState(env: HonoEnv['Bindings'], tenantId: string): Promise<{ budgetCents: number; spentCents: number; reservedCents: number; availableCents: number }> {
   const tenant = await getTenantById(env.DB, tenantId);
@@ -58,20 +58,67 @@ export async function releaseBudget(env: HonoEnv['Bindings'], tenantId: string, 
   }
 }
 
+export interface UsageTelemetry {
+  actualModel?: string;
+  requestId?: string;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+}
+
 export async function recordUsage(
   env: HonoEnv['Bindings'],
   tenantId: string,
   taskId: string,
-  modelId: string,
+  requestedModelId: string,
   tokensIn: number,
   tokensOut: number,
   usageId?: string,
+  telemetry?: UsageTelemetry,
+  fence?: ExecutionFence,
 ): Promise<number> {
-  const modelConfig = MODEL_REGISTRY[modelId];
-  const provider: AIProvider = modelConfig ? modelConfig.provider : 'openai';
-  const costCents = estimateCost(modelId, tokensIn, tokensOut);
-  const graph = await env.DB.prepare('SELECT id FROM task_graphs WHERE root_task_id=? AND tenant_id=? LIMIT 1').bind(taskId, tenantId).first<{ id: string }>();
-  if (graph) return costCents;
-  await createUsageRecord(env.DB, { id: usageId || crypto.randomUUID(), tenantId, taskId, model: modelId, provider, tokensIn, tokensOut, costCents, createdAt: new Date().toISOString() });
+  const actualModel = telemetry?.actualModel || requestedModelId;
+  const modelConfig = MODEL_REGISTRY[actualModel] || MODEL_REGISTRY[requestedModelId];
+  const provider: AIProvider = modelConfig?.provider || (requestedModelId.startsWith('agentrouter/') ? 'agentrouter' : 'openai');
+  const pricedModel = MODEL_REGISTRY[actualModel] ? actualModel : (MODEL_REGISTRY[requestedModelId] ? requestedModelId : undefined);
+  const costCents = pricedModel ? estimateCost(pricedModel, tokensIn, tokensOut) : 0;
+  const record = {
+    id: usageId || crypto.randomUUID(),
+    tenantId,
+    taskId,
+    model: requestedModelId,
+    actualModel,
+    provider,
+    requestId: telemetry?.requestId,
+    tokensIn,
+    tokensOut,
+    cachedTokens: telemetry?.cachedTokens || 0,
+    reasoningTokens: telemetry?.reasoningTokens || 0,
+    costCents,
+    pricingModel: pricedModel,
+    pricingSource: pricedModel ? 'model-registry' : 'unavailable',
+    inputCostPerMillion: pricedModel ? MODEL_REGISTRY[pricedModel].inputCostPerMillion : undefined,
+    outputCostPerMillion: pricedModel ? MODEL_REGISTRY[pricedModel].outputCostPerMillion : undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (fence?.graphId) {
+    await recordFencedUsage(env.DB, {
+      id: record.id,
+      tenantId,
+      taskId,
+      graphId: fence.graphId,
+      model: requestedModelId,
+      provider,
+      tokensIn,
+      tokensOut,
+      costCents,
+    }, fence);
+    await env.DB.prepare(`UPDATE usage_records SET actual_model=?,request_id=?,cached_tokens_in=?,reasoning_tokens=?,pricing_model=?,pricing_source=?,input_cost_per_million=?,output_cost_per_million=? WHERE id=? AND tenant_id=?`).bind(
+      actualModel, record.requestId || null, record.cachedTokens, record.reasoningTokens, record.pricingModel || null,
+      record.pricingSource, record.inputCostPerMillion ?? null, record.outputCostPerMillion ?? null, record.id, tenantId
+    ).run();
+  } else {
+    await createUsageRecord(env.DB, record);
+  }
   return costCents;
 }

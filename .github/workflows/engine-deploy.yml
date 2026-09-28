@@ -238,17 +238,29 @@ jobs:
             --data "{\"name\":\"CI deployment smoke ${GITHUB_RUN_ID}\",\"email\":\"ci-${GITHUB_RUN_ID}@smoke.invalid\"}")"
           STATUS="$(printf '%s' "$RESPONSE" | tail -n1)"
           BODY="$(printf '%s' "$RESPONSE" | sed '$d')"
-          test "$STATUS" = "201"
+          echo "Registration smoke test HTTP status: $STATUS"
+          if [ "$STATUS" != "201" ]; then
+            echo "Registration smoke test response:"
+            printf '%s\n' "$BODY"
+            exit 1
+          fi
 
           API_KEY="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.api_key||"");})')"
           TENANT_ID="$(printf '%s' "$BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.tenant?.id||"");})' )"
           test -n "$API_KEY"
           test -n "$TENANT_ID"
+          echo "Registration smoke test: PASS (tenant $TENANT_ID; API key received)"
 
           AUTH_RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' \
             -H "Authorization: Bearer $API_KEY" "$URL/api/v1/tenant")"
           AUTH_STATUS="$(printf '%s' "$AUTH_RESPONSE" | tail -n1)"
-          test "$AUTH_STATUS" = "200"
+          AUTH_BODY="$(printf '%s' "$AUTH_RESPONSE" | sed '$d')"
+          echo "Authenticated tenant lookup HTTP status: $AUTH_STATUS"
+          echo "Authenticated tenant lookup response: $AUTH_BODY"
+          if [ "$AUTH_STATUS" != "200" ]; then
+            echo "Authentication smoke test FAILED"
+            exit 1
+          fi
           echo "Production authentication smoke test: PASS"
 
       - name: Write deployment receipt and summary

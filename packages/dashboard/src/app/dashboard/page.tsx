@@ -1,11 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CheckCircle2, CircleAlert, Clock3, Loader2, Plus, ShieldCheck, Sparkles } from 'lucide-react';
-import { api, Task, TaskMode, TaskStatus } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { ArrowRight, Loader2, Sparkles } from 'lucide-react';
+import { api, Task } from '@/lib/api';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { CardSkeleton, TableSkeleton } from '@/components/ui/LoadingSkeleton';
 
 const starters = [
   'Research a topic and produce a decision brief with sources.',
@@ -13,119 +12,56 @@ const starters = [
   'Turn these requirements into an implementation plan.',
 ];
 
-const activeStatuses: TaskStatus[] = ['pending', 'classifying', 'routing', 'processing', 'quality-check', 'escalating', 'awaiting-approval', 'approved'];
-const attentionStatuses: TaskStatus[] = ['awaiting-approval', 'failed', 'rejected'];
-
 export default function DashboardOverview() {
   const [prompt, setPrompt] = useState('');
-  const [mode, setMode] = useState<TaskMode>('permission-based');
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadWorkspace() {
-    try {
-      const result = await api.getTasks();
-      setTasks(result.data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load your workspace.');
-    } finally { setLoading(false); }
-  }
-
-  useEffect(() => { void loadWorkspace(); }, []);
+  useEffect(() => { void api.getTasks().then((r) => setTasks(r.data.slice(0, 4))).catch(() => undefined); }, []);
 
   async function createTask() {
     const value = prompt.trim();
     if (!value || creating) return;
-    setCreating(true); setError(null);
+    setCreating(true);
+    setError(null);
     try {
-      const task = await api.createTask(value, mode);
+      const task = await api.createTask(value);
+      setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)].slice(0, 4));
       setPrompt('');
-      setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start the work.');
     } finally { setCreating(false); }
   }
 
-  const activeWork = useMemo(() => tasks.filter((task) => activeStatuses.includes(task.status)).slice(0, 6), [tasks]);
-  const attention = useMemo(() => tasks.filter((task) => attentionStatuses.includes(task.status)).slice(0, 6), [tasks]);
-  const recent = useMemo(() => tasks.filter((task) => !activeStatuses.includes(task.status)).slice(0, 6), [tasks]);
-
   return (
-    <div className="space-y-7 pb-10">
-      <section className="page-header">
-        <div>
-          <p className="eyebrow">Workspace</p>
-          <h1 className="page-title">What is Uden working on?</h1>
-          <p className="page-description">Start an outcome, then let Uden keep execution, decisions, and evidence in view.</p>
+    <div className="min-h-[calc(100vh-9rem)] pb-16">
+      <section className="mx-auto flex min-h-[62vh] max-w-3xl flex-col justify-center">
+        <div className="mb-5 text-center">
+          <p className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[.18em] text-[var(--accent-primary)]"><Sparkles size={13} /> Uden</p>
+          <h1 className="text-3xl font-semibold tracking-[-.035em] text-[var(--text-primary)] md:text-5xl">What do you want to get done?</h1>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-[var(--text-secondary)] md:text-base">Describe the outcome. Uden will keep the work, execution, and evidence recorded.</p>
         </div>
-        <Link href="/tasks" className="btn btn-secondary hidden sm:inline-flex"><span>History</span><ArrowRight size={14} /></Link>
+
+        <div className="rounded-2xl border bg-[var(--bg-elevated)] p-3 shadow-[var(--shadow-glow)]" style={{ borderColor: 'var(--border-color)' }}>
+          <textarea autoFocus id="work-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void createTask(); }} placeholder="Tell Uden what you need…" rows={5} className="w-full resize-none bg-transparent px-2 py-2 text-base leading-7 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none md:text-lg" />
+          <div className="flex items-center justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
+            <span className="text-xs text-[var(--text-muted)]">⌘ Enter to start</span>
+            <button type="button" onClick={() => void createTask()} disabled={!prompt.trim() || creating} className="btn btn-primary min-h-10 px-4">{creating ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}{creating ? 'Starting…' : 'Start work'}</button>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {starters.map((starter) => <button key={starter} type="button" onClick={() => setPrompt(starter)} className="rounded-full border px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" style={{ borderColor: 'var(--border-color)' }}>{starter}</button>)}
+        </div>
+
+        {error && <p role="alert" className="mx-auto mt-4 text-sm text-[var(--status-danger)]">{error}</p>}
       </section>
 
-      <section className="card overflow-hidden">
-        <div className="card-header">
-          <div>
-            <p className="metric-label">New objective</p>
-            <h2 className="mt-1 text-lg font-semibold tracking-[-.02em] text-[var(--text-primary)]">Give Uden something to handle</h2>
-          </div>
-          <div className="hidden items-center gap-2 text-xs text-[var(--text-muted)] sm:flex"><ShieldCheck size={14} /> Durable execution</div>
-        </div>
-        <div className="card-body">
-          <label htmlFor="work-prompt" className="sr-only">Describe the outcome you need</label>
-          <textarea id="work-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void createTask(); }} placeholder="Describe the outcome you need…" rows={3} className="w-full resize-none bg-transparent text-[1.05rem] leading-relaxed text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none" />
-          <div className="mt-5 flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]"><ShieldCheck size={15} /><span>Choose how much autonomy Uden has while executing this work.</span><span className="hidden md:inline">⌘ Enter</span></div>
-              <button type="button" onClick={() => void createTask()} disabled={!prompt.trim() || creating} className="btn btn-primary min-h-11 px-5">{creating ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}{creating ? 'Starting…' : 'Start work'}</button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="execution-mode" className="text-xs font-medium text-[var(--text-secondary)]">Execution mode</label>
-              <select id="execution-mode" aria-label="Execution permission mode" value={mode} onChange={(event) => setMode(event.target.value as TaskMode)} className="input h-9 w-full text-sm sm:w-auto">
-                <option value="permission-based">Permission-based — ask before restricted actions</option>
-                <option value="permissionless">Autopilot — execute without approval</option>
-              </select>
-              <span className="text-xs text-[var(--text-muted)]">Uden chooses the model and provider automatically.</span>
-            </div>
-          </div>
-          {error && <p role="alert" className="mt-3 text-sm text-[var(--status-danger)]">{error}</p>}
-        </div>
-      </section>
-
-      <section className="workspace-grid">
-        <div className="workspace-stack">
-          <TaskSection title="Active work" description="What Uden is executing now." icon={<Clock3 size={16} />} tasks={activeWork} loading={loading} empty="Nothing is running right now." />
-          <section className="card">
-            <div className="card-header">
-              <div><p className="metric-label">Recent</p><h2 className="mt-1 text-base font-semibold text-[var(--text-primary)]">Recent work</h2></div>
-              <Link href="/tasks" className="text-xs font-semibold text-[var(--accent-primary)]">View all <ArrowRight size={13} className="inline" /></Link>
-            </div>
-            <div className="card-body">
-              {loading ? <TableSkeleton rows={4} /> : recent.length === 0 ? <EmptyState icon={<CheckCircle2 size={20} />} text="No completed work yet." /> : <div>{recent.map((task) => <TaskRow key={task.id} task={task} />)}</div>}
-            </div>
-          </section>
-        </div>
-        <div className="workspace-stack">
-          <TaskSection title="Needs attention" description="Decisions or intervention required." icon={<CircleAlert size={16} />} tasks={attention} loading={loading} empty="Nothing needs your attention." attention />
-          <section className="card">
-            <div className="card-header"><div><p className="metric-label">Shortcuts</p><h2 className="mt-1 text-base font-semibold text-[var(--text-primary)]">Start from an outcome</h2></div><Plus size={15} className="text-[var(--text-muted)]" /></div>
-            <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-              {starters.map((starter) => <button key={starter} type="button" onClick={() => setPrompt(starter)} className="group flex w-full items-start gap-3 px-5 py-4 text-left transition hover:bg-[var(--bg-hover)]"><Sparkles size={14} className="mt-0.5 shrink-0 text-[var(--accent-primary)]" /><span className="text-sm leading-relaxed text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">{starter}</span></button>)}
-            </div>
-          </section>
-        </div>
-      </section>
+      {tasks.length > 0 && <section className="mx-auto max-w-3xl border-t pt-5" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--text-muted)]">Recent work</p><Link href="/tasks" className="text-xs font-medium text-[var(--accent-primary)]">View all <ArrowRight size={12} className="inline" /></Link></div>
+        <div className="space-y-1">{tasks.map((task) => <Link key={task.id} href={'/tasks/' + task.id} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-[var(--bg-hover)]"><span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">{task.prompt}</span><StatusBadge status={task.status} /></Link>)}</div>
+      </section>}
     </div>
   );
 }
-
-function TaskSection({ title, description, icon, tasks, loading, empty, attention = false }: { title: string; description: string; icon: React.ReactNode; tasks: Task[]; loading: boolean; empty: string; attention?: boolean }) {
-  return <section className="card"><div className="card-header"><div><p className="metric-label">{attention ? 'Attention' : 'Execution'}</p><h2 className="mt-1 flex items-center gap-2 text-base font-semibold text-[var(--text-primary)]">{icon}{title}</h2><p className="mt-1 text-xs text-[var(--text-muted)]">{description}</p></div>{tasks.length > 0 && <span className="text-xs font-mono text-[var(--text-muted)]">{tasks.length}</span>}</div><div className="card-body">{loading ? <div className="space-y-2"><CardSkeleton /><CardSkeleton /></div> : tasks.length === 0 ? <EmptyState icon={attention ? <CircleAlert size={20} /> : <Clock3 size={20} />} text={empty} /> : <div>{tasks.map((task) => <TaskRow key={task.id} task={task} />)}</div>}</div></section>;
-}
-
-function TaskRow({ task }: { task: Task }) {
-  return <Link href={`/tasks/${task.id}`} className="group flex items-center gap-3 border-b border-[var(--border-subtle)] py-3.5 last:border-b-0"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]">{task.prompt}</p><p className="mt-1 truncate font-mono text-[10px] text-[var(--text-muted)]">{task.id}</p></div><StatusBadge status={task.status} /><ArrowRight size={14} className="shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" /></Link>;
-}
-
-function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) { return <div className="flex min-h-28 flex-col items-center justify-center text-center text-sm text-[var(--text-muted)]"><div className="mb-2 opacity-60">{icon}</div><p>{text}</p></div>; }

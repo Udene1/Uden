@@ -12,3 +12,5 @@ button, input, textarea, select { font: inherit; } button { border: 0; cursor: p
 
 .auth-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:18px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
 .auth-switch button{border:0;background:transparent;color:var(--muted);padding:9px 10px;border-radius:9px;cursor:pointer;font:inherit}.auth-switch button.active{background:var(--bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+.connection-list{display:grid;gap:10px}.connection-list>div{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px;border:1px solid var(--border,#242b35);border-radius:14px;background:var(--surface,#10141a)}.connection-list strong{color:var(--text,#f4f7fb)}.connection-list span{color:var(--muted,#697483);font-size:12px;text-align:right}.settings-actions{display:flex;gap:8px}

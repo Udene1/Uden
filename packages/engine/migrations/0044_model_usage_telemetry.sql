@@ -1,0 +1,18 @@
+ALTER TABLE usage_records ADD COLUMN actual_model TEXT;
+ALTER TABLE usage_records ADD COLUMN request_id TEXT;
+ALTER TABLE usage_records ADD COLUMN cached_tokens_in INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage_records ADD COLUMN pricing_model TEXT;
+ALTER TABLE usage_records ADD COLUMN pricing_source TEXT;
+ALTER TABLE usage_records ADD COLUMN input_cost_per_million REAL;
+ALTER TABLE usage_records ADD COLUMN output_cost_per_million REAL;
+ALTER TABLE task_graph_attempts ADD COLUMN actual_model TEXT;
+ALTER TABLE task_graph_attempts ADD COLUMN request_id TEXT;
+ALTER TABLE task_graph_attempts ADD COLUMN cached_tokens_in INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE task_graph_attempts ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE task_graph_attempts ADD COLUMN pricing_model TEXT;
+ALTER TABLE task_graph_attempts ADD COLUMN pricing_source TEXT;
+ALTER TABLE task_graph_attempts ADD COLUMN input_cost_per_million REAL;
+ALTER TABLE task_graph_attempts ADD COLUMN output_cost_per_million REAL;
+CREATE INDEX IF NOT EXISTS idx_usage_records_actual_model ON usage_records(tenant_id, actual_model, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_graph_attempts_actual_model ON task_graph_attempts(tenant_id, actual_model, started_at DESC);

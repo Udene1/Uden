@@ -8,38 +8,28 @@ import { getProvider } from './providers';
 import { discoverAgentRouterModels } from './providers/connection';
 import { createTask, updateTask, getTenantById, getMonthlySpend } from '../db/queries';
 import { Task, TaskStatus } from '@ai-work-partner/shared';
-
-function modelAvailable(env: HonoEnv['Bindings'], modelId: string): boolean {
-  const normalized = modelId.toLowerCase();
-  if (normalized.startsWith('agentrouter/')) return Boolean(env.AGENTROUTER_API_KEY);
-  if (normalized.startsWith('gpt') || normalized.startsWith('o3') || normalized.startsWith('o4')) return Boolean(env.OPENAI_API_KEY);
-  if (normalized.startsWith('claude')) return Boolean(env.ANTHROPIC_API_KEY);
-  if (normalized.startsWith('gemini') || normalized.startsWith('google/')) return Boolean(env.GEMINI_API_KEY || env.GOOGLE_AI_API_KEY);
-  if (normalized.startsWith('deepseek')) return Boolean(env.DEEPSEEK_API_KEY);
-  return false;
-}
+import { sanitizeProviderError, isAmbiguousProviderError } from './provider-errors';
+import { resolveModelCandidates, markModelHealthy, markModelUnavailable, markModelCooldown, availabilityFailureKind } from './model-availability';
 
 async function selectAvailableRouting(
   env: HonoEnv['Bindings'],
+  tenantId: string,
   routing: { primaryModel: string; fallbackChain: string[] }
 ): Promise<{ primaryModel: string; fallbackChain: string[] }> {
   const ordered = [routing.primaryModel, ...routing.fallbackChain];
-  const available = ordered.filter(
-    (model, index) => model && modelAvailable(env, model) && ordered.indexOf(model) === index
-  );
-
   if (env.AGENTROUTER_API_KEY) {
     try {
       const discovered = await discoverAgentRouterModels(env);
       for (const modelId of discovered) {
         const reference = `agentrouter/${modelId}`;
-        if (!available.includes(reference)) available.push(reference);
+        if (!ordered.includes(reference)) ordered.push(reference);
       }
     } catch {
-      // Keep native routing available if live AgentRouter discovery is temporarily unavailable.
+      // Native routing remains usable if live discovery is unavailable.
     }
   }
 
+  const available = await resolveModelCandidates(env, tenantId, env.DB, ordered);
   return {
     primaryModel: available[0] || routing.primaryModel,
     fallbackChain: available.slice(1),
@@ -73,7 +63,7 @@ export async function executeTask(
     classification.estimatedInputTokens,
     classification.estimatedOutputTokens
   );
-  const availableRouting = await selectAvailableRouting(env, routing);
+  const availableRouting = await selectAvailableRouting(env, tenantId, routing);
   const effectiveRouting = { ...routing, ...availableRouting };
 
   const initialStatus: TaskStatus = permissionless ? 'processing' : 'awaiting-approval';
@@ -102,7 +92,6 @@ export async function executeTask(
     };
   }
 
-  // Persist task and associated routing plan
   await createTask(env.DB, task, effectiveRouting);
 
   if (!permissionless) {
@@ -125,7 +114,6 @@ export async function runTaskExecution(
   fallbackChain: string[],
   expectedFormat: string
 ) {
-  const provider = getProvider(env, primaryModel);
   let finalOutput = '';
   let finalModelUsed = primaryModel;
   let finalQualityScore = 100;
@@ -134,32 +122,66 @@ export async function runTaskExecution(
   let totalTokensOut = 0;
   let escalationCount = 0;
 
+  const candidates = [primaryModel, ...fallbackChain].filter(
+    (model, index, all) => Boolean(model) && all.indexOf(model) === index
+  );
+  let successfulModelIndex = -1;
+  let response: Awaited<ReturnType<ReturnType<typeof getProvider>['execute']>> | undefined;
+
   try {
-    const response = await provider.execute(task.prompt, primaryModel);
+    for (let index = 0; index < candidates.length; index += 1) {
+      const modelId = candidates[index];
+      try {
+        response = await getProvider(env, modelId).execute(task.prompt, modelId);
+        successfulModelIndex = index;
+        await markModelHealthy(env.DB, task.tenantId, modelId);
+        const cost = await recordUsage(
+          env,
+          task.tenantId,
+          task.id,
+          modelId,
+          response.promptTokens,
+          response.completionTokens,
+          `${task.id}:provider:${index + 1}`,
+          {
+            actualModel: response.actualModel,
+            requestId: response.requestId,
+            cachedTokens: response.cachedTokens,
+            reasoningTokens: response.reasoningTokens,
+          },
+        );
+        totalTokensIn = response.promptTokens;
+        totalTokensOut = response.completionTokens;
+        totalCostCents = cost;
+        break;
+      } catch (error) {
+        const safe = sanitizeProviderError(modelId, error);
+        if (!isAmbiguousProviderError(safe)) {
+          const kind = availabilityFailureKind(safe.code);
+          if (kind === 'cooldown') {
+            await markModelCooldown(env.DB, task.tenantId, modelId, safe.code);
+          } else {
+            await markModelUnavailable(env.DB, task.tenantId, modelId, safe.code);
+          }
+        }
+        if (isAmbiguousProviderError(safe)) throw safe;
+      }
+    }
 
-    // Atomically bill and record the primary model attempt
-    const primaryCost = await recordUsage(
-      env,
-      task.tenantId,
-      task.id,
-      primaryModel,
-      response.promptTokens,
-      response.completionTokens
-    );
-
-    totalTokensIn = response.promptTokens;
-    totalTokensOut = response.completionTokens;
-    totalCostCents = primaryCost;
+    if (!response || successfulModelIndex < 0) {
+      throw new Error('No viable model/provider candidates completed execution');
+    }
 
     const quality = checkQuality(response.result, expectedFormat, task.prompt);
+    const remainingFallbackChain = candidates.slice(successfulModelIndex + 1);
 
-    if (quality.shouldEscalate && fallbackChain.length > 0) {
+    if (quality.shouldEscalate && remainingFallbackChain.length > 0) {
       const escalated = await escalateTask(
         env,
         task.prompt,
         expectedFormat,
-        primaryModel,
-        fallbackChain,
+        candidates[successfulModelIndex],
+        remainingFallbackChain,
         task.id,
         task.tenantId,
         quality
@@ -175,10 +197,12 @@ export async function runTaskExecution(
         escalationCount = escalated.attemptNumber - 1;
       } else {
         finalOutput = response.result;
+        finalModelUsed = candidates[successfulModelIndex];
         finalQualityScore = quality.overallScore;
       }
     } else {
       finalOutput = response.result;
+      finalModelUsed = candidates[successfulModelIndex];
       finalQualityScore = quality.overallScore;
     }
 
@@ -206,11 +230,12 @@ export async function runTaskExecution(
       tokensOut: totalTokensOut,
       escalationCount
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const safe = sanitizeProviderError(finalModelUsed, error);
     await updateTask(env.DB, task.id, task.tenantId, {
       status: 'failed',
-      output: `Execution error: ${error.message}`
+      output: `Execution error: ${safe.message}`
     });
-    throw error;
+    throw safe;
   }
 }

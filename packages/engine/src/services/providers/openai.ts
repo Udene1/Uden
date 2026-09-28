@@ -50,6 +50,10 @@ export class OpenAIProvider {
       result: choice?.message?.content || '',
       promptTokens: data.usage?.prompt_tokens || 0,
       completionTokens: data.usage?.completion_tokens || 0,
+      cachedTokens: data.usage?.prompt_tokens_details?.cached_tokens || data.usage?.prompt_tokens_details?.cachedTokens || 0,
+      reasoningTokens: data.usage?.completion_tokens_details?.reasoning_tokens || data.usage?.completion_tokens_details?.reasoningTokens || 0,
+      actualModel: typeof data.model === 'string' ? data.model : modelId,
+      requestId: typeof data.id === 'string' ? data.id : undefined,
       finishReason: choice?.finish_reason || 'stop',
       latencyMs
     };

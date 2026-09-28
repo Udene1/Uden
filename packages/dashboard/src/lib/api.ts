@@ -1,4 +1,3 @@
-import { getSession } from 'next-auth/react';
 import { DEFAULT_ENGINE_URL } from '@ai-work-partner/shared';
 
 export type TaskStatus = 'pending' | 'classifying' | 'routing' | 'processing' | 'quality-check' | 'escalating' | 'completed' | 'failed' | 'awaiting-approval' | 'approved' | 'rejected';
@@ -10,21 +9,27 @@ export interface UsageSummary { totalCostCents:number; totalTokensIn:number; tot
 export interface GraphAnalytics { totals:Record<string,number>; escalation:Record<string,number>; byDomain:Array<Record<string,any>>; byModel:Array<Record<string,any>>; recentGraphs:Array<Record<string,any>>; }
 export interface AnalyticsResponse { analytics:GraphAnalytics; savings:{actualCostCents:number;primaryAttemptCostCents:number;escalationCostCents:number;routingSavingsCents:number}; }
 export interface UpdateTenant { name?:string; qualityPreference?:QualityPreference; monthlyBudgetCents?:number; defaultMode?:TaskMode; bringOwnKeys?:boolean; }
-const ENGINE_URL = process.env.ENGINE_URL || process.env.NEXT_PUBLIC_ENGINE_URL || DEFAULT_ENGINE_URL;
+const ENGINE_URL = process.env.NEXT_PUBLIC_ENGINE_URL || process.env.ENGINE_URL || DEFAULT_ENGINE_URL;
 
 class ApiClient {
- private base = typeof window === 'undefined'
-  ? `${ENGINE_URL}/api/v1`
-  : '/api/backend';
- private async fetcher<T>(endpoint:string,options:RequestInit={},apiKey?:string):Promise<T>{const headers:Record<string,string>={'Content-Type':'application/json'};if(!apiKey && typeof window !== 'undefined'){const session=await getSession();apiKey=(session as {apiKey?:string}|null)?.apiKey;}if(apiKey)headers.Authorization=`Bearer ${apiKey}`;const response=await fetch(`${this.base}${endpoint}`,{...options,headers:{...headers,...(options.headers as Record<string,string>|undefined)}});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`API Error: ${response.status}`);}return response.json();}
- async registerTenant(name:string, email=''):Promise<{apiKey:string}>{const endpoint=typeof window !== 'undefined' ? '/api/register' : '/tenants';const result=await this.fetcher<{api_key:string}>(endpoint,{method:'POST',body:JSON.stringify({name,email})});return {apiKey:result.api_key};}
- async getCurrentTenant(apiKey:string):Promise<{tenant:Tenant}>{return this.fetcher('/tenant',{},apiKey);}
- async updateTenant(updates:UpdateTenant,apiKey:string):Promise<{success:boolean}>{return this.fetcher('/tenant',{method:'PUT',body:JSON.stringify(updates)},apiKey);}
- async rotateApiKey(apiKey:string):Promise<{api_key:string}>{return this.fetcher('/tenant/rotate-key',{method:'POST'},apiKey);}
+ private base = `${ENGINE_URL}/api/v1`;
+ private async fetcher<T>(endpoint:string,options:RequestInit={},apiKey?:string):Promise<T>{
+   const headers:Record<string,string>={'Content-Type':'application/json'};
+   if(apiKey) headers.Authorization=`Bearer ${apiKey}`;
+   const response=await fetch(`${this.base}${endpoint}`,{...options,credentials:'include',headers:{...headers,...(options.headers as Record<string,string>|undefined)}});
+   if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`API Error: ${response.status}`);}
+   return response.json();
+ }
+ async registerTenant(name:string,email=''):Promise<{apiKey:string;sessionToken:string;tenant:Tenant}>{const result=await this.fetcher<{api_key:string;session_token:string;tenant:Tenant}>('/tenants',{method:'POST',body:JSON.stringify({name,email,client:'web'})});return {apiKey:result.api_key,sessionToken:result.session_token,tenant:result.tenant};}
+ async login(apiKey:string):Promise<{tenant:Tenant;sessionToken:string}>{const result=await this.fetcher<{tenant:Tenant;session_token:string}>('/auth/session',{method:'POST',body:JSON.stringify({apiKey,client:'web'})});return {tenant:result.tenant,sessionToken:result.session_token};}
+ async logout():Promise<void>{await this.fetcher('/auth/logout',{method:'POST'});}
+ async getCurrentTenant(apiKey?:string):Promise<{tenant:Tenant}>{return this.fetcher('/tenant',{},apiKey);}
+ async updateTenant(updates:UpdateTenant,apiKey?:string):Promise<{success:boolean}>{return this.fetcher('/tenant',{method:'PUT',body:JSON.stringify(updates)},apiKey);}
+ async rotateApiKey(apiKey?:string):Promise<{api_key:string}>{return this.fetcher('/tenant/rotate-key',{method:'POST'},apiKey);}
  async getUsageSummary(apiKey?:string):Promise<UsageSummary>{return this.fetcher('/usage/summary',{},apiKey);}
  async getDailyUsage(apiKey?:string){return this.fetcher<{daily:Array<{date:string;cost_cents:number;task_count:number;tokens_in:number;tokens_out:number}>}>('/usage/daily',{},apiKey);}
  async getAnalytics(apiKey?:string):Promise<AnalyticsResponse>{return this.fetcher('/usage/analytics',{},apiKey);}
- async getTasks(apiKey?:string,filters?:{status?:string}):Promise<{data:Task[],total:number}>{const qs=filters?.status?`?status=${encodeURIComponent(filters.status)}`:'';const result=await this.fetcher<{tasks:Task[]}>('/tasks'+qs,{},apiKey);return {data:result.tasks||[],total:(result.tasks||[]).length};}
+ async getTasks(apiKey?:string,filters?:{status?:string}):Promise<{data:Task[],total:number}>{const qs=filters?.status?`?status=${encodeURIComponent(filters.status)}`:'';const result=await this.fetcher<{tasks:Task[]}>(`/tasks${qs}`,{},apiKey);return {data:result.tasks||[],total:(result.tasks||[]).length};}
  async getTask(id:string,apiKey?:string):Promise<Task>{const result=await this.fetcher<{task:Task}>(`/tasks/${id}`,{},apiKey);return result.task;}
  async approveTask(id:string,options?:{primaryModel?:string;fallbackChain?:string[];expectedFormat?:string},apiKey?:string):Promise<Task>{return this.fetcher<Task>(`/tasks/${id}/approve`,{method:'POST',body:JSON.stringify(options||{})},apiKey);}
  async createTask(prompt:string,mode?:TaskMode,projectId?:string,apiKey?:string):Promise<Task>{return this.fetcher('/tasks',{method:'POST',body:JSON.stringify({prompt,mode,projectId})},apiKey);}

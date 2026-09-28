@@ -185,6 +185,7 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=migrations/0042_registration_permission_tables.sql
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=migrations/0043_unified_client_sessions.sql
 
       - name: Publish configured provider secrets
         env:

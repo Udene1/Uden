@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { ArrowRight, CheckCircle2, CircleAlert, Clock3, Loader2, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, Task, TaskMode, TaskStatus } from '@/lib/api';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -18,8 +17,6 @@ const activeStatuses: TaskStatus[] = ['pending', 'classifying', 'routing', 'proc
 const attentionStatuses: TaskStatus[] = ['awaiting-approval', 'failed', 'rejected'];
 
 export default function DashboardOverview() {
-  const { data: session } = useSession();
-  const apiKey = (session as any)?.apiKey as string | undefined;
   const [prompt, setPrompt] = useState('');
   const [mode, setMode] = useState<TaskMode>('permission-based');
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -28,9 +25,8 @@ export default function DashboardOverview() {
   const [error, setError] = useState<string | null>(null);
 
   async function loadWorkspace() {
-    if (!apiKey) { setLoading(false); return; }
     try {
-      const result = await api.getTasks(apiKey);
+      const result = await api.getTasks();
       setTasks(result.data);
       setError(null);
     } catch (err) {
@@ -38,14 +34,14 @@ export default function DashboardOverview() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { void loadWorkspace(); }, [apiKey]);
+  useEffect(() => { void loadWorkspace(); }, []);
 
   async function createTask() {
     const value = prompt.trim();
-    if (!value || !apiKey || creating) return;
+    if (!value || creating) return;
     setCreating(true); setError(null);
     try {
-      const task = await api.createTask(value, mode, undefined, apiKey);
+      const task = await api.createTask(value, mode);
       setPrompt('');
       setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
     } catch (err) {
@@ -83,7 +79,6 @@ export default function DashboardOverview() {
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]"><ShieldCheck size={15} /><select aria-label="Execution permission mode" value={mode} onChange={(event) => setMode(event.target.value as TaskMode)} className="rounded-md border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2.5 py-2 text-xs text-[var(--text-secondary)] outline-none"><option value="permission-based">Ask before high-risk actions</option><option value="permissionless">Permissionless</option></select><span className="hidden md:inline">⌘ Enter</span></div>
             <button type="button" onClick={() => void createTask()} disabled={!prompt.trim() || !apiKey || creating} className="btn btn-primary min-h-11 px-5">{creating ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}{creating ? 'Starting…' : 'Start work'}</button>
           </div>
-          {!apiKey && <p className="mt-3 text-xs text-[var(--text-muted)]">Sign in to start work in this workspace.</p>}
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-danger)]">{error}</p>}
         </div>
       </section>

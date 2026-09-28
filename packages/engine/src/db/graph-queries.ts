@@ -7,11 +7,19 @@ export interface GraphAttemptInput {
   tenantId: string;
   attemptNumber: number;
   model: string;
+  actualModel?: string;
   provider?: string;
+  requestId?: string;
   status: 'running' | 'completed' | 'failed';
   promptTokens?: number;
   completionTokens?: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
   costCents?: number;
+  pricingModel?: string;
+  pricingSource?: string;
+  inputCostPerMillion?: number;
+  outputCostPerMillion?: number;
   qualityScore?: number;
   escalationReason?: string;
   error?: string;
@@ -84,16 +92,17 @@ export async function updateTaskGraphNode(db: D1Database, tenantId: string, grap
 export async function createTaskGraphAttempt(db: D1Database, attempt: GraphAttemptInput) {
   await db.prepare(`
     INSERT INTO task_graph_attempts (
-      id, graph_id, node_id, tenant_id, attempt_number, model, provider, status,
-      prompt_tokens, completion_tokens, cost_cents, quality_score, escalation_reason,
-      error, started_at, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      id, graph_id, node_id, tenant_id, attempt_number, model, actual_model, provider, request_id, status,
+      prompt_tokens, completion_tokens, cached_tokens_in, reasoning_tokens, cost_cents, quality_score, escalation_reason,
+      error, started_at, completed_at, pricing_model, pricing_source, input_cost_per_million, output_cost_per_million
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     attempt.id, attempt.graphId, attempt.nodeId, attempt.tenantId, attempt.attemptNumber,
-    attempt.model, attempt.provider || null, attempt.status, attempt.promptTokens || 0,
-    attempt.completionTokens || 0, attempt.costCents || 0, attempt.qualityScore ?? null,
+    attempt.model, attempt.actualModel || null, attempt.provider || null, attempt.requestId || null, attempt.status, attempt.promptTokens || 0,
+    attempt.completionTokens || 0, attempt.cachedTokens || 0, attempt.reasoningTokens || 0, attempt.costCents || 0, attempt.qualityScore ?? null,
     attempt.escalationReason || null, attempt.error || null,
-    attempt.startedAt || new Date().toISOString(), attempt.completedAt || null
+    attempt.startedAt || new Date().toISOString(), attempt.completedAt || null,
+    attempt.pricingModel || null, attempt.pricingSource || null, attempt.inputCostPerMillion ?? null, attempt.outputCostPerMillion ?? null
   ).run();
 }
 
@@ -104,8 +113,8 @@ export async function updateTaskGraphAttempt(
   updates: Partial<Omit<GraphAttemptInput, 'id' | 'graphId' | 'nodeId' | 'tenantId' | 'attemptNumber'>>
 ) {
   const fields: Record<string, string> = {
-    model: 'model', provider: 'provider', status: 'status', promptTokens: 'prompt_tokens',
-    completionTokens: 'completion_tokens', costCents: 'cost_cents', qualityScore: 'quality_score',
+    model: 'model', actualModel: 'actual_model', provider: 'provider', requestId: 'request_id', status: 'status', promptTokens: 'prompt_tokens',
+    completionTokens: 'completion_tokens', cachedTokens: 'cached_tokens_in', reasoningTokens: 'reasoning_tokens', costCents: 'cost_cents', pricingModel: 'pricing_model', pricingSource: 'pricing_source', inputCostPerMillion: 'input_cost_per_million', outputCostPerMillion: 'output_cost_per_million', qualityScore: 'quality_score',
     escalationReason: 'escalation_reason', error: 'error', startedAt: 'started_at', completedAt: 'completed_at'
   };
   const keys = Object.keys(updates).filter((key) => fields[key]);

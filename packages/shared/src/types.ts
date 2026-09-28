@@ -52,6 +52,18 @@ export type CheckSeverity = 'warning' | 'error';
 // Tenant
 // ─────────────────────────────────────────────
 
+export interface TenantPublic {
+  id: string;
+  name: string;
+  email: string;
+  qualityPreference: QualityPreference;
+  monthlyBudgetCents: number;
+  defaultMode: WorkMode;
+  bringOwnKeys: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Tenant {
   id: string;
   name: string;

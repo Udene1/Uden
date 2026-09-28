@@ -208,10 +208,18 @@ export interface UsageRecord {
   tenantId: string;
   taskId?: string;
   model: string;
+  actualModel?: string;
   provider: AIProvider;
+  requestId?: string;
   tokensIn: number;
   tokensOut: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
   costCents: number;
+  pricingModel?: string;
+  pricingSource?: string;
+  inputCostPerMillion?: number;
+  outputCostPerMillion?: number;
   createdAt: string;
 }
 

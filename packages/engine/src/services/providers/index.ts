@@ -3,6 +3,7 @@ import { OpenAIProvider } from './openai';
 import { AnthropicProvider } from './anthropic';
 import { GoogleProvider } from './google';
 import { DeepSeekProvider } from './deepseek';
+import { parseModelReference } from './connection';
 import { sanitizeProviderError } from '../provider-errors';
 
 export interface ProviderExecutionOptions {
@@ -14,7 +15,8 @@ export interface ProviderExecutionOptions {
 export interface ProviderExecutionResult { result: string; promptTokens: number; completionTokens: number; finishReason?: string; latencyMs?: number; }
 export interface AIProvider { execute(prompt: string, modelId: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult>; supportsIdempotencyKey?: boolean; }
 
-export function getProvider(env: Env, modelId: string): AIProvider {
+export function getProvider(env: Env, modelReference: string): AIProvider {
+  const { modelId } = parseModelReference(modelReference);
   let provider: AIProvider;
   if (modelId.startsWith('gpt') || modelId.startsWith('o3')) provider = new OpenAIProvider(env);
   else if (modelId.startsWith('claude')) provider = new AnthropicProvider(env);
@@ -22,9 +24,15 @@ export function getProvider(env: Env, modelId: string): AIProvider {
   else if (modelId.startsWith('deepseek')) provider = new DeepSeekProvider(env);
   else throw new Error(`Unsupported model ID: ${modelId}`);
 
-  const name = modelId.startsWith('gpt') || modelId.startsWith('o3') ? 'openai' : modelId.startsWith('claude') ? 'anthropic' : modelId.startsWith('gemini') ? 'google' : 'deepseek';
+  const name = modelId.startsWith('gpt') || modelId.startsWith('o3') ? 'openai'
+    : modelId.startsWith('claude') ? 'anthropic'
+    : modelId.startsWith('gemini') ? 'google'
+    : 'deepseek';
+
   return {
-    supportsIdempotencyKey: name === 'openai',
+    // AgentRouter's OpenAI-compatible transport is not declared idempotent by Uden,
+    // so durable recovery will not replay an unresolved AgentRouter attempt.
+    supportsIdempotencyKey: name === 'openai' && !modelReference.startsWith('agentrouter/'),
     execute: async (prompt, id, options) => {
       try { return await provider.execute(prompt, id, options); }
       catch (error) { throw sanitizeProviderError(name, error); }

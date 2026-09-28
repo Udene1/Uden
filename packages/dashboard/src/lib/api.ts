@@ -13,16 +13,20 @@ const ENGINE_URL = process.env.NEXT_PUBLIC_ENGINE_URL || process.env.ENGINE_URL 
 
 class ApiClient {
  private base = `${ENGINE_URL}/api/v1`;
+ private getSessionToken() { return typeof window !== 'undefined' ? window.sessionStorage.getItem('uden_session') || '' : ''; }
+ private setSessionToken(token:string) { if (typeof window !== 'undefined') window.sessionStorage.setItem('uden_session', token); }
+ private clearSessionToken() { if (typeof window !== 'undefined') window.sessionStorage.removeItem('uden_session'); }
  private async fetcher<T>(endpoint:string,options:RequestInit={},apiKey?:string):Promise<T>{
    const headers:Record<string,string>={'Content-Type':'application/json'};
-   if(apiKey) headers.Authorization=`Bearer ${apiKey}`;
-   const response=await fetch(`${this.base}${endpoint}`,{...options,credentials:'include',headers:{...headers,...(options.headers as Record<string,string>|undefined)}});
+   const credential = apiKey || this.getSessionToken();
+   if(credential) headers.Authorization=`Bearer ${credential}`;
+   const response=await fetch(`${this.base}${endpoint}`,{...options,headers:{...headers,...(options.headers as Record<string,string>|undefined)}});
    if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`API Error: ${response.status}`);}
    return response.json();
  }
- async registerTenant(name:string,email=''):Promise<{apiKey:string;sessionToken:string;tenant:Tenant}>{const result=await this.fetcher<{api_key:string;session_token:string;tenant:Tenant}>('/tenants',{method:'POST',body:JSON.stringify({name,email,client:'web'})});return {apiKey:result.api_key,sessionToken:result.session_token,tenant:result.tenant};}
- async login(apiKey:string):Promise<{tenant:Tenant;sessionToken:string}>{const result=await this.fetcher<{tenant:Tenant;session_token:string}>('/auth/session',{method:'POST',body:JSON.stringify({apiKey,client:'web'})});return {tenant:result.tenant,sessionToken:result.session_token};}
- async logout():Promise<void>{await this.fetcher('/auth/logout',{method:'POST'});}
+ async registerTenant(name:string,email=''):Promise<{apiKey:string;sessionToken:string;tenant:Tenant}>{const result=await this.fetcher<{api_key:string;session_token:string;tenant:Tenant}>('/tenants',{method:'POST',body:JSON.stringify({name,email,client:'web'})});this.setSessionToken(result.session_token);return {apiKey:result.api_key,sessionToken:result.session_token,tenant:result.tenant};}
+ async login(apiKey:string):Promise<{tenant:Tenant;sessionToken:string}>{const result=await this.fetcher<{tenant:Tenant;session_token:string}>('/auth/session',{method:'POST',body:JSON.stringify({apiKey,client:'web'})});this.setSessionToken(result.session_token);return {tenant:result.tenant,sessionToken:result.session_token};}
+ async logout():Promise<void>{try{await this.fetcher('/auth/logout',{method:'POST'});}finally{this.clearSessionToken();}}
  async getCurrentTenant(apiKey?:string):Promise<{tenant:Tenant}>{return this.fetcher('/tenant',{},apiKey);}
  async updateTenant(updates:UpdateTenant,apiKey?:string):Promise<{success:boolean}>{return this.fetcher('/tenant',{method:'PUT',body:JSON.stringify(updates)},apiKey);}
  async rotateApiKey(apiKey?:string):Promise<{api_key:string}>{return this.fetcher('/tenant/rotate-key',{method:'POST'},apiKey);}

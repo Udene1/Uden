@@ -25,7 +25,7 @@ export class DeepSeekProvider {
       ? (this.env.AGENTROUTER_OPENAI_BASE_URL || 'https://co.agentrouter.org/v1')
       : 'https://api.deepseek.com/v1';
 
-    const res = await fetch(`${baseUrl.replace(/\\/$/, '')}/chat/completions`, {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

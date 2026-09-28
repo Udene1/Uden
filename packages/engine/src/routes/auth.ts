@@ -19,7 +19,8 @@ authRoutes.post('/session', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const rawApiKey = typeof body.apiKey === 'string' ? body.apiKey : '';
   const client = isClient(body.client) ? body.client : null;
-  if (!rawApiKey || !client) return c.json({ error: 'apiKey and client are required' }, 400);
+  if (!rawApiKey) return c.json({ error: 'apiKey is required' }, 400);
+  if (!client) return c.json({ error: 'Invalid client' }, 400);
 
   const tenant = await getTenantByApiKey(c.env.DB, await hashApiKey(rawApiKey));
   if (!tenant) return c.json({ error: 'Unauthorized' }, 401);

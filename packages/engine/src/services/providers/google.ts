@@ -58,6 +58,9 @@ export class GoogleProvider {
       result: textPart,
       promptTokens: data.usageMetadata?.promptTokenCount || 0,
       completionTokens: data.usageMetadata?.candidatesTokenCount || 0,
+      cachedTokens: data.usageMetadata?.cachedContentTokenCount || 0,
+      reasoningTokens: data.usageMetadata?.thoughtsTokenCount || 0,
+      actualModel: typeof data.modelVersion === 'string' ? data.modelVersion : modelId,
       finishReason: candidate?.finishReason || 'STOP',
       latencyMs
     };

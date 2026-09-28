@@ -19,6 +19,7 @@ tenantRoutes.post('/', async c => {
   if(!body.name)return c.json({error:'Name is required'},400);
   const rawKey=`sk_${crypto.randomUUID().replace(/-/g,'')}`;
   const tenant:Tenant={id:crypto.randomUUID(),name:body.name,email:body.email||'',apiKeyHash:await hashApiKey(rawKey),qualityPreference:body.qualityPreference||'balanced',monthlyBudgetCents:body.monthlyBudgetCents||body.budget_limit?(body.budget_limit*100):10000,defaultMode:body.defaultMode||'permissionless',bringOwnKeys:Boolean(body.bringOwnKeys),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  if (body.client !== undefined && !isClient(body.client)) return c.json({error:'Invalid client'},400);
   const client=isClient(body.client)?body.client:'api';
   const subject=`tenant:${tenant.id}`;
   try {

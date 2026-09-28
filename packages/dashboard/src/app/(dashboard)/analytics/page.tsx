@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
 import { Activity, ArrowRight, BarChart3, Coins, Route, ShieldAlert, TimerReset } from 'lucide-react';
 import { api, AnalyticsResponse, UsageSummary } from '@/lib/api';
 import { formatCurrency, formatNumber } from '@/lib/utils';
@@ -10,8 +9,6 @@ import { formatCurrency, formatNumber } from '@/lib/utils';
 type Daily = { date: string; cost_cents: number; task_count: number; tokens_in: number; tokens_out: number };
 
 export default function AnalyticsPage() {
-  const { data: session } = useSession();
-  const apiKey = (session as any)?.apiKey;
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [daily, setDaily] = useState<Daily[]>([]);
@@ -19,12 +16,11 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!apiKey) return;
-    Promise.all([api.getAnalytics(apiKey), api.getUsageSummary(apiKey), api.getDailyUsage(apiKey)])
+    Promise.all([api.getAnalytics(), api.getUsageSummary(), api.getDailyUsage()])
       .then(([analytics, summary, series]) => { setData(analytics); setUsage(summary); setDaily(series.daily || []); })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load analytics'))
       .finally(() => setLoading(false));
-  }, [apiKey]);
+  }, []);
 
   const maxCost = useMemo(() => Math.max(...daily.map((d) => d.cost_cents), 1), [daily]);
   const recentDaily = daily.slice(-14);

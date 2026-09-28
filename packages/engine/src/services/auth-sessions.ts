@@ -1,6 +1,7 @@
 import { getTenantByApiKey } from '../db/queries';
 
 export type AuthClient = 'desktop' | 'web' | 'mobile' | 'api';
+export const SESSION_COOKIE = 'uden_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 async function sha256(value: string): Promise<string> {
@@ -14,7 +15,7 @@ export async function createAuthSession(db: D1Database, tenantId: string, client
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
   const tokenHash = await sha256(token);
-  await db.prepare(`INSERT INTO auth_sessions (id, tenant_id, subject, token_hash, client, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
+  await db.prepare(`INSERT INTO auth_sessions (id, tenant_id, subject, token_hash, client, expires_at) VALUES (?, ?, ?, ?, ?, ?`)
     .bind(id, tenantId, subject, tokenHash, client, expiresAt).run();
   return { id, token, subject, client, expiresAt };
 }
@@ -36,4 +37,18 @@ export async function revokeAuthSession(db: D1Database, token: string) {
 
 export async function authenticateApiKey(db: D1Database, rawKey: string) {
   return getTenantByApiKey(db, await sha256(rawKey));
+}
+
+export function sessionCookie(token: string, expiresAt: string) {
+  const maxAge = Math.max(0, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000));
+  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=None`;
+}
+
+export function clearSessionCookie() {
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None`;
+}
+
+export function readSessionCookie(cookieHeader: string | undefined) {
+  const value = cookieHeader?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`));
+  return value ? value.slice(SESSION_COOKIE.length + 1) : '';
 }

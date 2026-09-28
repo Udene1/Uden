@@ -18,6 +18,9 @@ export interface AIProvider { execute(prompt: string, modelId: string, options?:
 export function getProvider(env: Env, modelReference: string): AIProvider {
   const { modelId } = parseModelReference(modelReference);
   let provider: AIProvider;
+  if (modelReference.startsWith('agentrouter/') && modelId.startsWith('gemini')) {
+    throw new Error('AgentRouter connection is not configured for Gemini models; use the native Google connection');
+  }
   if (modelId.startsWith('gpt') || modelId.startsWith('o3')) provider = new OpenAIProvider(env);
   else if (modelId.startsWith('claude')) provider = new AnthropicProvider(env);
   else if (modelId.startsWith('gemini')) provider = new GoogleProvider(env);

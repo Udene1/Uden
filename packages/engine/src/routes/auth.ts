@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { HonoEnv } from '../types';
 import { hashApiKey } from '../middleware/auth';
 import { getTenantByApiKey } from '../db/queries';
-import { createAuthSession, revokeAuthSession, AuthClient } from '../services/auth-sessions';
+import { createAuthSession, revokeAuthSession, AuthClient, sessionCookie, clearSessionCookie, readSessionCookie } from '../services/auth-sessions';
 
 export const authRoutes = new Hono<HonoEnv>();
 
@@ -20,6 +20,7 @@ authRoutes.post('/session', async (c) => {
   if (!tenant) return c.json({ error: 'Unauthorized' }, 401);
 
   const session = await createAuthSession(c.env.DB, tenant.id, client);
+  c.header('Set-Cookie', sessionCookie(session.token, session.expiresAt));
   return c.json({
     tenant,
     session_token: session.token,
@@ -31,8 +32,9 @@ authRoutes.post('/session', async (c) => {
 
 authRoutes.post('/logout', async (c) => {
   const authorization = c.req.header('Authorization') || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : readSessionCookie(c.req.header('Cookie'));
   if (!token || !token.startsWith('us_')) return c.json({ error: 'Unauthorized' }, 401);
   await revokeAuthSession(c.env.DB, token);
+  c.header('Set-Cookie', clearSessionCookie());
   return c.json({ success: true });
 });

@@ -22,7 +22,7 @@ export default function NewTaskPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const value = prompt.trim();
-    if (!value || !apiKey || creating) return;
+    if (!value || creating) return;
     setCreating(true);
     setError(null);
     try {

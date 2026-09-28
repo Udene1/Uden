@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, StatusBar } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { CheckCircle2, ChevronRight, Clock3, LogOut, Plus, RefreshCw, ShieldCheck, Sparkles, XCircle, Zap, CircleAlert } from 'lucide-react-native';
+import { CheckCircle2, ChevronRight, Clock3, LogOut, Menu, X, Plus, RefreshCw, ShieldCheck, Sparkles, XCircle, Zap, CircleAlert } from 'lucide-react-native';
 import { CLIENT_CAPABILITIES } from '@ai-work-partner/shared';
 import { createEngineApi, defaultEngineUrl, EngineApi, Task, TaskStatus } from './src/api';
 
@@ -75,6 +75,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'active' | 'attention' | 'history'>('active');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
 
   const loadTasks = useCallback(async (client: EngineApi, showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
@@ -155,7 +157,7 @@ export default function App() {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.bg} />
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <View style={styles.headerIdentity}><View style={styles.avatar}><Sparkles size={17} color={COLORS.accent} /></View><View><Text style={styles.eyebrow}>UDEN</Text><Text style={styles.headerTitle}>Work, in motion.</Text></View></View>
+          <View style={styles.headerIdentity}><TouchableOpacity onPress={() => setMenuOpen(true)} accessibilityLabel="Open navigation" style={styles.iconButton}><Menu size={18} color={COLORS.muted} /></TouchableOpacity><View><Text style={styles.eyebrow}>UDEN</Text><Text style={styles.headerTitle}>Work, in motion.</Text></View></View>
           <TouchableOpacity onPress={disconnect} accessibilityLabel="Disconnect" style={styles.iconButton}><LogOut size={18} color={COLORS.muted} /></TouchableOpacity>
         </View>
 
@@ -199,7 +201,9 @@ export default function App() {
         {visibleTasks.length === 0 ? <EmptyState tab={tab} /> : <View style={styles.list}>{visibleTasks.slice(0, 8).map((task) => <TaskRow key={task.id} task={task} onPress={() => setSelectedTask(task)} />)}</View>}
 
         {selectedTask && <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} onApprove={() => void approve(selectedTask)} busy={working} />}
-        <Text style={styles.capabilities}>{capabilities.length} mobile capabilities · deeper project workflows stay on desktop</Text>
+        <Text style={styles.capabilities}>{capabilities.length} mobile capabilities · deeper project workflows stay on desktop</Text>{menuOpen && <View style={styles.drawerBackdrop}><TouchableOpacity style={styles.drawerScrim} onPress={() => setMenuOpen(false)} /><View style={styles.drawer}><View style={styles.drawerHeader}><View><Text style={styles.eyebrow}>UDEN</Text><Text style={styles.drawerTitle}>Navigation</Text></View><TouchableOpacity onPress={() => setMenuOpen(false)} style={styles.iconButton}><X size={18} color={COLORS.muted} /></TouchableOpacity></View><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Work</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => { setMenuOpen(false); setTab('active'); }}><Text style={styles.drawerItemText}>Tasks</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => { setMenuOpen(false); setConnectionsOpen(true); }}><Text style={styles.drawerItemText}>Connections</Text><Text style={styles.drawerHint}>GitHub · Origin / Cursor · Google Workspace</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Projects</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Graphs & history</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Settings</Text></TouchableOpacity></View></View>}
+        {connectionsOpen && <View style={styles.modalBackdrop}><View style={styles.connectionModal}><View style={styles.drawerHeader}><View><Text style={styles.eyebrow}>CONNECTIONS</Text><Text style={styles.drawerTitle}>Connected capabilities</Text></View><TouchableOpacity onPress={() => setConnectionsOpen(false)} style={styles.iconButton}><X size={18} color={COLORS.muted} /></TouchableOpacity></View><Text style={styles.connectionModalText}>Integrations stay here instead of occupying the Work surface.</Text><View style={styles.connectionCard}><Text style={styles.drawerItemText}>GitHub</Text><Text style={styles.drawerHint}>Repository and code context</Text></View><View style={styles.connectionCard}><Text style={styles.drawerItemText}>Origin / Cursor</Text><Text style={styles.drawerHint}>Workspace and repository context</Text></View><View style={styles.connectionCard}><Text style={styles.drawerItemText}>Google Workspace</Text><Text style={styles.drawerHint}>Gmail · Drive · Calendar</Text></View></View></View>}
+        
       </ScrollView>
     </SafeAreaView>
   );
@@ -241,6 +245,19 @@ const COLORS = {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
+  drawerBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 20, flexDirection: 'row' },
+  drawerScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,.62)' },
+  drawer: { width: '82%', maxWidth: 360, backgroundColor: COLORS.surface, borderRightWidth: 1, borderRightColor: COLORS.border, padding: 18, paddingTop: 24 },
+  drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  drawerTitle: { color: COLORS.text, fontSize: 20, fontWeight: '750', marginTop: 3 },
+  drawerItem: { borderTopWidth: 1, borderTopColor: COLORS.border, paddingVertical: 16 },
+  drawerItemText: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+  drawerHint: { color: COLORS.muted, fontSize: 10, marginTop: 4 },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 30, backgroundColor: 'rgba(0,0,0,.72)', justifyContent: 'flex-end' },
+  connectionModal: { backgroundColor: COLORS.elevated, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 18, paddingBottom: 28, gap: 10 },
+  connectionModalText: { color: COLORS.secondary, fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  connectionCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 13, padding: 13 },
+
   container: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 34, gap: 14 },
   connectionContainer: { padding: 24, gap: 16, justifyContent: 'center', flexGrow: 1 },
   brandMark: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#10213a', borderWidth: 1, borderColor: '#1f3c61' },

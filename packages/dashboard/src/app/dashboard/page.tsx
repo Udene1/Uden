@@ -26,7 +26,6 @@ export default function DashboardOverview() {
 
   async function loadWorkspace() {
     try {
-    try {
       const result = await api.getTasks();
       setTasks(result.data);
       setError(null);

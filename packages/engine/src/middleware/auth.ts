@@ -15,6 +15,8 @@ export async function authMiddleware(c:Context,next:Next){
     if(!session)return c.json({error:'Unauthorized'},401);
     const tenant=await c.env.DB.prepare('SELECT * FROM tenants WHERE id = ?').bind(session.tenant_id).first();
     if(!tenant)return c.json({error:'Unauthorized'},401);
+    const membership=await c.env.DB.prepare('SELECT 1 FROM tenant_members WHERE tenant_id=? AND subject=? LIMIT 1').bind(session.tenant_id,session.subject).first();
+    if(!membership)return c.json({error:'Unauthorized'},401);
     c.set('tenant',tenant); c.set('tenantId',session.tenant_id); c.set('executionPrincipal',session.subject);
     await next(); return;
   }

@@ -1,3 +1,4 @@
+// Production deployment trigger: keep engine deployment tied to the authoritative main client/backend state.
 import { Hono } from 'hono';
 import { HonoEnv } from '../types';
 import { createTenant, getTenantById, updateTenant } from '../db/queries';

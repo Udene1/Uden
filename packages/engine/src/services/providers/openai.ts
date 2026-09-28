@@ -31,7 +31,7 @@ export class OpenAIProvider {
       ? (this.env.AGENTROUTER_OPENAI_BASE_URL || 'https://co.agentrouter.org/v1')
       : 'https://api.openai.com/v1';
 
-    const res = await fetch(`${baseUrl.replace(/\\/$/, '')}/chat/completions`, {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

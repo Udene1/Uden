@@ -1,4 +1,5 @@
 name: Engine Deploy (Cloudflare)
+# Trigger deployment when provider secrets are refreshed in GitHub Actions.
 
 on:
   workflow_dispatch:

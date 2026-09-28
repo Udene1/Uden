@@ -25,7 +25,7 @@ export class AnthropicProvider {
       ? (this.env.AGENTROUTER_ANTHROPIC_BASE_URL || 'https://co.agentrouter.org')
       : 'https://api.anthropic.com';
 
-    const res = await fetch(`${baseUrl.replace(/\\/$/, '')}/v1/messages`, {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -4,23 +4,27 @@ import Link from 'next/link';
 import { Command, LogOut, Moon, Plus, Search, Sun, UserRound } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { signOut, useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import CommandPalette from '@/components/ui/CommandPalette';
+import { api } from '@/lib/api';
 
 const titles: Record<string, string> = { dashboard: 'Workspace', tasks: 'Tasks', graphs: 'Execution graphs', projects: 'Projects', analytics: 'Analytics', settings: 'Settings' };
 
 export default function Header() {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [identity, setIdentity] = useState('');
+  useEffect(() => {
+    setMounted(true);
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem('uden_session')) {
+      void api.getCurrentTenant().then(({ tenant }) => setIdentity(tenant.email || tenant.name || 'Workspace member')).catch(() => setIdentity(''));
+    }
+  }, []);
 
   const segment = pathname.split('/')[1] || 'dashboard';
   const title = titles[segment] || 'Workspace';
-  const user = session?.user;
-  const identity = user?.email || user?.name || 'Workspace member';
+  const user = Boolean(identity);
 
   return (
     <>
@@ -35,7 +39,7 @@ export default function Header() {
           {user && <div className="ml-2 hidden items-center gap-2 border-l pl-3 lg:flex" style={{ borderColor: 'var(--border-color)' }}><div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--bg-tertiary)] text-[10px] font-semibold text-[var(--accent-primary)]">{identity.slice(0, 1).toUpperCase()}</div><span className="max-w-40 truncate text-xs text-[var(--text-muted)]" title={identity}>{identity}</span></div>}
           {mounted && <button type="button" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>}
           {user && <Link href="/settings" aria-label="Account settings" title={identity} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] sm:hidden"><UserRound size={17} /></Link>}
-          {user && <button type="button" aria-label="Sign out" title="Sign out" onClick={() => void signOut({ callbackUrl: '/login' })} className="hidden h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] sm:inline-flex"><LogOut size={18} /></button>}
+          {user && <button type="button" aria-label="Sign out" title="Sign out" onClick={() => void api.logout().then(() => { window.location.href = '/login'; })} className="hidden h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] sm:inline-flex"><LogOut size={18} /></button>}
         </div>
       </header>
       <CommandPalette />

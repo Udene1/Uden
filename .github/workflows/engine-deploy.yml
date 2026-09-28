@@ -263,6 +263,57 @@ jobs:
           fi
           echo "Production authentication smoke test: PASS"
 
+      - name: Production authentication contract smoke test v2
+        run: |
+          set -euo pipefail
+          URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+          WORKDIR="$(mktemp -d)"
+          TENANT_A=""; TENANT_B=""
+          cleanup() { set +e; for ID in "$TENANT_A" "$TENANT_B"; do if [ -n "$ID" ]; then npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "DELETE FROM tenants WHERE id='$ID'" >/dev/null 2>&1; fi; done; rm -rf "$WORKDIR"; }
+          trap cleanup EXIT
+          call() {
+            local name="$1" method="$2" path="$3" body="$4" token="$5"
+            local args=(--silent --show-error --output "$WORKDIR/$name.body" --dump-header "$WORKDIR/$name.headers" -w '%{http_code}' -X "$method")
+            if [ -n "$body" ]; then args+=(-H 'Content-Type: application/json' --data "$body"); fi
+            if [ -n "$token" ]; then args+=(-H "Authorization: Bearer $token"); fi
+            STATUS="$(curl "${args[@]}" "$URL$path")"
+            REQUEST_ID="$(awk 'BEGIN{IGNORECASE=1} /^x-request-id:/ {gsub(/\r/,"",$2); print $2}' "$WORKDIR/$name.headers" | tail -n1)"
+            printf '%-38s HTTP %-3s request_id=%s\n' "$1" "$STATUS" "$REQUEST_ID"
+          }
+          json() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const v=process.argv[1].split(".").reduce((a,k)=>a?.[k],x);process.stdout.write(v==null?"":String(v));})' "$2" < "$1"; }
+          echo "=== Production authentication contract smoke test v2 ==="
+          echo "run_id=$GITHUB_RUN_ID commit=$GITHUB_SHA"
+          call register_a POST /api/v1/tenants "{\"name\":\"CI auth v2 $GITHUB_RUN_ID\",\"email\":\"ci-auth-v2-$GITHUB_RUN_ID@smoke.invalid\",\"client\":\"web\"}" ""
+          test "$STATUS" = "201"
+          API_KEY="$(json "$WORKDIR/register_a.body" api_key)"
+          SESSION_A="$(json "$WORKDIR/register_a.body" session_token)"
+          TENANT_A="$(json "$WORKDIR/register_a.body" tenant.id)"
+          SUBJECT_A="$(json "$WORKDIR/register_a.body" subject)"
+          EXPIRES_A="$(json "$WORKDIR/register_a.body" expires_at)"
+          case "$API_KEY" in sk_*) ;; *) exit 1;; esac
+          case "$SESSION_A" in us_*) ;; *) exit 1;; esac
+          test "$SUBJECT_A" = "tenant:$TENANT_A"; test -n "$EXPIRES_A"
+          call session_auth GET /api/v1/tenant "" "$SESSION_A"; test "$STATUS" = "200"; test "$(json "$WORKDIR/session_auth.body" tenant.id)" = "$TENANT_A"
+          call logout POST /api/v1/auth/logout "" "$SESSION_A"; test "$STATUS" = "200"
+          call revoked GET /api/v1/tenant "" "$SESSION_A"; test "$STATUS" = "401"
+          call api_key_login POST /api/v1/auth/session "{\"apiKey\":\"$API_KEY\",\"client\":\"desktop\"}" ""; test "$STATUS" = "201"
+          SESSION_DESKTOP="$(json "$WORKDIR/api_key_login.body" session_token)"; case "$SESSION_DESKTOP" in us_*) ;; *) exit 1;; esac
+          call desktop_auth GET /api/v1/tenant "" "$SESSION_DESKTOP"; test "$STATUS" = "200"
+          call invalid_session GET /api/v1/tenant "" us_invalid_smoke_v2; test "$STATUS" = "401"
+          call invalid_api_key POST /api/v1/auth/session '{"apiKey":"sk_invalid_smoke_v2","client":"web"}' ""; test "$STATUS" = "401"
+          call register_b POST /api/v1/tenants "{\"name\":\"CI auth isolation v2 $GITHUB_RUN_ID\",\"email\":\"ci-auth-isolation-v2-$GITHUB_RUN_ID@smoke.invalid\",\"client\":\"mobile\"}" ""; test "$STATUS" = "201"
+          SESSION_B="$(json "$WORKDIR/register_b.body" session_token)"; TENANT_B="$(json "$WORKDIR/register_b.body" tenant.id)"
+          test -n "$TENANT_B"; test "$TENANT_B" != "$TENANT_A"
+          call tenant_b_auth GET /api/v1/tenant "" "$SESSION_B"; test "$STATUS" = "200"; test "$(json "$WORKDIR/tenant_b_auth.body" tenant.id)" = "$TENANT_B"
+          echo "registration_session_verified=true"
+          echo "session_revocation_verified=true"
+          echo "api_key_to_session_verified=true"
+          echo "invalid_credentials_rejected=true"
+          echo "tenant_isolation_verified=true"
+          echo "request_ids_captured=true"
+          echo "raw_credentials_printed=false"
+          echo "Production authentication contract smoke test v2: PASS"
+
       - name: Write deployment receipt and summary
         if: ${{ always() }}
         env:

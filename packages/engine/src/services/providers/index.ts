@@ -30,9 +30,12 @@ export function getProvider(env: Env, modelReference: string): AIProvider {
   if (connection === 'agentrouter' && !env.AGENTROUTER_API_KEY) throw new Error('AGENTROUTER_API_KEY is not configured');
 
   let provider: AIProvider;
-  if (connection === 'agentrouter' && providerName === 'openai') provider = new OpenAIProvider(env);
-  else if (connection === 'agentrouter' && providerName === 'anthropic') provider = new AnthropicProvider(env);
-  else if (connection === 'agentrouter' && (providerName === 'deepseek' || providerName === 'google')) provider = new OpenAIProvider(env);
+  // AgentRouter exposes a mixed live catalogue. Claude-family models use its
+  // Anthropic-compatible endpoint; every other discovered model is sent through
+  // its OpenAI-compatible endpoint. This deliberately does not hardcode model
+  // versions or vendor lists.
+  if (connection === 'agentrouter' && providerName === 'anthropic') provider = new AnthropicProvider(env);
+  else if (connection === 'agentrouter') provider = new OpenAIProvider(env);
   else if (providerName === 'openai') provider = new OpenAIProvider(env);
   else if (providerName === 'anthropic') provider = new AnthropicProvider(env);
   else if (providerName === 'google') provider = new GoogleProvider(env);

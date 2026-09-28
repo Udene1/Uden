@@ -12,7 +12,7 @@ export interface ProviderExecutionOptions {
   maxTokens?: number;
   idempotencyKey?: string;
 }
-export interface ProviderExecutionResult { result: string; promptTokens: number; completionTokens: number; finishReason?: string; latencyMs?: number; }
+export interface ProviderExecutionResult { result: string; promptTokens: number; completionTokens: number; cachedTokens?: number; reasoningTokens?: number; actualModel?: string; requestId?: string; finishReason?: string; latencyMs?: number; }
 export interface AIProvider { execute(prompt: string, modelId: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult>; supportsIdempotencyKey?: boolean; }
 
 function catalogProvider(modelId: string): 'openai' | 'anthropic' | 'google' | 'deepseek' | 'unknown' {

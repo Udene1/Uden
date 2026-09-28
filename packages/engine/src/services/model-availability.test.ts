@@ -17,5 +17,6 @@ describe('model availability failure classification', () => {
     expect(availabilityFailureKind('CREDENTIAL_MISSING')).toBe('unavailable');
     expect(availabilityFailureKind('PROVIDER_AUTH_FAILED')).toBe('unavailable');
     expect(availabilityFailureKind('PROVIDER_REQUEST_FAILED')).toBe('unavailable');
+    expect(availabilityFailureKind('UNKNOWN_PROVIDER_ERROR')).toBe('unavailable');
   });
 });

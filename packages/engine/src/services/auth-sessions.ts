@@ -15,7 +15,7 @@ export async function createAuthSession(db: D1Database, tenantId: string, client
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
   const tokenHash = await sha256(token);
-  await db.prepare(`INSERT INTO auth_sessions (id, tenant_id, subject, token_hash, client, expires_at) VALUES (?, ?, ?, ?, ?, ?`)
+  await db.prepare(`INSERT INTO auth_sessions (id, tenant_id, subject, token_hash, client, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
     .bind(id, tenantId, subject, tokenHash, client, expiresAt).run();
   return { id, token, subject, client, expiresAt };
 }

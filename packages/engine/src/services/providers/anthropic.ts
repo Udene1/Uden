@@ -1,12 +1,15 @@
 import { Env } from '../../types';
 import { ProviderExecutionOptions, ProviderExecutionResult } from './index';
+import { parseModelReference } from './connection';
 
 export class AnthropicProvider {
   constructor(private env: Env) {}
 
-  async execute(prompt: string, modelId: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult> {
-    if (!this.env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY is not configured');
+  async execute(prompt: string, modelReference: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult> {
+    const { modelId, connection } = parseModelReference(modelReference);
+    const apiKey = connection === 'agentrouter' ? this.env.AGENTROUTER_API_KEY : this.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error(connection === 'agentrouter' ? 'AGENTROUTER_API_KEY is not configured' : 'ANTHROPIC_API_KEY is not configured');
     }
 
     const startTime = Date.now();
@@ -15,19 +18,18 @@ export class AnthropicProvider {
       max_tokens: options?.maxTokens || 4096,
       messages: [{ role: 'user', content: prompt }]
     };
+    if (options?.systemPrompt) body.system = options.systemPrompt;
+    if (options?.temperature !== undefined) body.temperature = options.temperature;
 
-    if (options?.systemPrompt) {
-      body.system = options.systemPrompt;
-    }
-    if (options?.temperature !== undefined) {
-      body.temperature = options.temperature;
-    }
+    const baseUrl = connection === 'agentrouter'
+      ? (this.env.AGENTROUTER_ANTHROPIC_BASE_URL || 'https://co.agentrouter.org')
+      : 'https://api.anthropic.com/v1';
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(`${baseUrl.replace(/\\/$/, '')}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.env.ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify(body),
@@ -35,15 +37,13 @@ export class AnthropicProvider {
     });
 
     const latencyMs = Date.now() - startTime;
-
     if (!res.ok) {
       const errorText = await res.text().catch(() => 'Unknown error');
-      throw new Error(`Anthropic error (${res.status}): ${errorText}`);
+      throw new Error(`${connection === 'agentrouter' ? 'AgentRouter Anthropic-compatible' : 'Anthropic'} error (${res.status}): ${errorText}`);
     }
 
     const data = await res.json() as any;
     const textBlock = data.content?.find((c: any) => c.type === 'text');
-
     return {
       result: textBlock?.text || '',
       promptTokens: data.usage?.input_tokens || 0,

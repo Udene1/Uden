@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, CheckCircle2, CircleAlert, Clock3, Loader2, Plus, ShieldCheck, Sparkles } from 'lucide-react';
-import { api, Task, TaskMode, TaskStatus } from '@/lib/api';
+import { api, Task, TaskStatus } from '@/lib/api';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { CardSkeleton, TableSkeleton } from '@/components/ui/LoadingSkeleton';
 
@@ -18,7 +18,6 @@ const attentionStatuses: TaskStatus[] = ['awaiting-approval', 'failed', 'rejecte
 
 export default function DashboardOverview() {
   const [prompt, setPrompt] = useState('');
-  const [mode, setMode] = useState<TaskMode>('permission-based');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -41,7 +40,7 @@ export default function DashboardOverview() {
     if (!value || creating) return;
     setCreating(true); setError(null);
     try {
-      const task = await api.createTask(value, mode);
+      const task = await api.createTask(value);
       setPrompt('');
       setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
     } catch (err) {
@@ -76,7 +75,7 @@ export default function DashboardOverview() {
           <label htmlFor="work-prompt" className="sr-only">Describe the outcome you need</label>
           <textarea id="work-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void createTask(); }} placeholder="Describe the outcome you need…" rows={3} className="w-full resize-none bg-transparent text-[1.05rem] leading-relaxed text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none" />
           <div className="mt-5 flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]"><ShieldCheck size={15} /><select aria-label="Execution permission mode" value={mode} onChange={(event) => setMode(event.target.value as TaskMode)} className="rounded-md border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2.5 py-2 text-xs text-[var(--text-secondary)] outline-none"><option value="permission-based">Ask before high-risk actions</option><option value="permissionless">Permissionless</option></select><span className="hidden md:inline">⌘ Enter</span></div>
+            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]"><ShieldCheck size={15} /><span>Uden handles model selection and routing</span><span className="hidden md:inline">⌘ Enter</span></div>
             <button type="button" onClick={() => void createTask()} disabled={!prompt.trim() || creating} className="btn btn-primary min-h-11 px-5">{creating ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}{creating ? 'Starting…' : 'Start work'}</button>
           </div>
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-danger)]">{error}</p>}

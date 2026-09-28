@@ -305,6 +305,32 @@ jobs:
           SESSION_B="$(json "$WORKDIR/register_b.body" session_token)"; TENANT_B="$(json "$WORKDIR/register_b.body" tenant.id)"
           test -n "$TENANT_B"; test "$TENANT_B" != "$TENANT_A"
           call tenant_b_auth GET /api/v1/tenant "" "$SESSION_B"; test "$STATUS" = "200"; test "$(json "$WORKDIR/tenant_b_auth.body" tenant.id)" = "$TENANT_B"
+          # Negative contract checks
+          call malformed_api_key POST /api/v1/auth/session '{"apiKey":"not-an-api-key","client":"web"}' ""; test "$STATUS" = "401"
+          call malformed_session GET /api/v1/tenant "" "not-a-session"; test "$STATUS" = "401"
+          call wrong_client POST /api/v1/auth/session "{\"apiKey\":\"$API_KEY\",\"client\":\"tablet\"}" ""; test "$STATUS" = "400"
+
+          call logout_twice POST /api/v1/auth/logout "" "$SESSION_DESKTOP"; test "$STATUS" = "200"
+          call logout_twice_again POST /api/v1/auth/logout "" "$SESSION_DESKTOP"; test "$STATUS" = "200"
+          call logout_twice_revoked GET /api/v1/tenant "" "$SESSION_DESKTOP"; test "$STATUS" = "401"
+
+          EXPIRED_TOKEN="us_expired_${GITHUB_RUN_ID}"
+          EXPIRED_HASH="$(node -e 'const c=require("crypto");process.stdout.write(c.createHash("sha256").update(process.argv[1]).digest("hex"))' "$EXPIRED_TOKEN")"
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "INSERT INTO auth_sessions(id,tenant_id,subject,token_hash,client,expires_at) VALUES('smoke-expired-${GITHUB_RUN_ID}','$TENANT_A','tenant:$TENANT_A','$EXPIRED_HASH','web','2000-01-01T00:00:00.000Z')" >/dev/null
+          call expired_session GET /api/v1/tenant "" "$EXPIRED_TOKEN"; test "$STATUS" = "401"
+
+          FORGED_B_TOKEN="us_forged_b_${GITHUB_RUN_ID}"
+          FORGED_B_HASH="$(node -e 'const c=require("crypto");process.stdout.write(c.createHash("sha256").update(process.argv[1]).digest("hex"))' "$FORGED_B_TOKEN")"
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "INSERT INTO auth_sessions(id,tenant_id,subject,token_hash,client,expires_at) VALUES('smoke-forged-b-${GITHUB_RUN_ID}','$TENANT_B','tenant:$TENANT_A','$FORGED_B_HASH','web','2099-01-01T00:00:00.000Z')" >/dev/null
+          call tenant_a_principal_on_b GET /api/v1/tenant "" "$FORGED_B_TOKEN"; test "$STATUS" = "401"
+
+          SUBJECT_TEST="tenant:attacker-${GITHUB_RUN_ID}"
+          call arbitrary_subject_register POST /api/v1/tenants "{\"name\":\"CI subject test $GITHUB_RUN_ID\",\"email\":\"ci-subject-$GITHUB_RUN_ID@smoke.invalid\",\"client\":\"web\",\"subject\":\"$SUBJECT_TEST\"}" ""
+          test "$STATUS" = "201"
+          SUBJECT_TEST_RETURNED="$(json "$WORKDIR/arbitrary_subject_register.body" subject)"
+          SUBJECT_TEST_TENANT="$(json "$WORKDIR/arbitrary_subject_register.body" tenant.id)"
+          test "$SUBJECT_TEST_RETURNED" = "tenant:$SUBJECT_TEST_TENANT"
+          TENANT_C="$SUBJECT_TEST_TENANT"
           echo "registration_session_verified=true"
           echo "session_revocation_verified=true"
           echo "api_key_to_session_verified=true"

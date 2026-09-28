@@ -2,6 +2,7 @@ import type { HonoEnv } from '../types';
 import { recordUsage, reserveBudget as reserveBudgetUnfenced, releaseBudget as releaseBudgetUnfenced } from './cost';
 import { checkQuality } from './quality';
 import { getProvider } from './providers';
+import { discoverAgentRouterModels } from './providers/connection';
 import { executeDurableProviderAttempt } from './provider-attempt-execution';
 import { routeGraphNode } from './graph-router';
 import { createEscalationLog, createTask, getMonthlySpend, getTenantById, updateTask } from '../db/queries';
@@ -20,7 +21,23 @@ export interface GraphExecutionResult { graph: TaskGraph; status: 'completed' | 
 export function validateTaskGraphPlan(plan: TaskGraphPlan): void { const ids = new Set<string>(); for (const node of plan.nodes) { if (ids.has(node.id)) throw new Error(`Invalid graph: duplicate node id '${node.id}'`); ids.add(node.id); if (node.dependencies.includes(node.id)) throw new Error(`Invalid graph: node '${node.id}' depends on itself`); } for (const node of plan.nodes) for (const dependency of node.dependencies) if (!ids.has(dependency)) throw new Error(`Invalid graph: node '${node.id}' depends on missing node '${dependency}'`); const remaining = new Map(plan.nodes.map((node) => [node.id, new Set(node.dependencies)])); let resolved = 0; while (remaining.size > 0) { const ready = [...remaining.entries()].filter(([, dependencies]) => dependencies.size === 0).map(([id]) => id); if (ready.length === 0) throw new Error('Invalid graph: dependency cycle detected'); for (const id of ready) remaining.delete(id); for (const dependencies of remaining.values()) for (const id of ready) dependencies.delete(id); resolved += ready.length; } if (resolved !== plan.nodes.length) throw new Error('Invalid graph: graph could not be fully resolved'); }
 export function buildGraphNodePrompt(node: TaskNode, graph: TaskGraph): string { const upstream = node.contextFrom.map((id) => graph.nodes.find((candidate) => candidate.id === id)).filter((candidate): candidate is TaskNode => Boolean(candidate?.output)).map((candidate) => `### ${candidate.id}: ${candidate.title}\nQuality score: ${candidate.qualityScore ?? 'n/a'}\nOutput:\n${candidate.output}`).join('\n\n'); return upstream ? `${node.prompt}\n\nUse the following completed upstream work as context. Do not invent missing upstream results.\n\n${upstream}` : node.prompt; }
 function setNodeStatus(node: TaskNode, status: TaskNodeStatus): void { node.status = status; }
-function providerName(modelId: string): string { if (modelId.startsWith('gpt') || modelId.startsWith('o3')) return 'openai'; if (modelId.startsWith('claude')) return 'anthropic'; if (modelId.startsWith('gemini')) return 'google'; if (modelId.startsWith('deepseek')) return 'deepseek'; return 'unknown'; }
+function providerName(modelReference: string): string {
+  const { modelId, connection } = modelReference.startsWith('agentrouter/')
+    ? { modelId: modelReference.slice('agentrouter/'.length), connection: 'agentrouter' as const }
+    : { modelId: modelReference, connection: 'native' as const };
+  if (connection === 'agentrouter') {
+    if (/^(openai\/|gpt|o3|o4)/i.test(modelId)) return 'agentrouter/openai';
+    if (/^(anthropic\/|claude)/i.test(modelId)) return 'agentrouter/anthropic';
+    if (/^(google\/|gemini)/i.test(modelId)) return 'agentrouter/google';
+    if (/^deepseek\//i.test(modelId)) return 'agentrouter/deepseek';
+    return 'agentrouter';
+  }
+  if (modelId.startsWith('gpt') || modelId.startsWith('o3') || modelId.startsWith('o4')) return 'openai';
+  if (modelId.startsWith('claude')) return 'anthropic';
+  if (modelId.startsWith('gemini')) return 'google';
+  if (modelId.startsWith('deepseek')) return 'deepseek';
+  return 'unknown';
+}
 function modelAvailable(env: HonoEnv['Bindings'], modelId: string): boolean {
   if (modelId.startsWith('agentrouter/')) return Boolean(env.AGENTROUTER_API_KEY);
   if (modelId.startsWith('gpt') || modelId.startsWith('o3')) return Boolean(env.OPENAI_API_KEY);
@@ -29,9 +46,20 @@ function modelAvailable(env: HonoEnv['Bindings'], modelId: string): boolean {
   if (modelId.startsWith('deepseek')) return Boolean(env.DEEPSEEK_API_KEY);
   return false;
 }
-function selectAvailableModels(env: HonoEnv['Bindings'], primary: string, fallbacks: string[]): { primary: string; fallbacks: string[] } {
+async function selectAvailableModels(env: HonoEnv['Bindings'], primary: string, fallbacks: string[]): Promise<{ primary: string; fallbacks: string[] }> {
   const ordered = [primary, ...fallbacks];
   const available = ordered.filter((model, index) => model && modelAvailable(env, model) && ordered.indexOf(model) === index);
+  if (env.AGENTROUTER_API_KEY) {
+    try {
+      const discovered = await discoverAgentRouterModels(env);
+      for (const modelId of discovered) {
+        const reference = `agentrouter/${modelId}`;
+        if (!available.includes(reference)) available.push(reference);
+      }
+    } catch {
+      // Keep native routing available if discovery is temporarily unavailable.
+    }
+  }
   return { primary: available[0] || primary, fallbacks: available.slice(1) };
 }
 function attemptId(graphId: string, nodeId: string, attemptNumber: number): string { return `${graphId}:${nodeId}:${attemptNumber}`; }
@@ -47,7 +75,7 @@ async function executeNode(env: HonoEnv['Bindings'], graph: TaskGraph, node: Tas
   const reserveBudget = (_env: HonoEnv['Bindings'], _tenantId: string, amountCents: number, referenceId: string) => reserveBudgetUnfenced(_env, _tenantId, amountCents, referenceId, fence);
   const releaseBudget = (_env: HonoEnv['Bindings'], _tenantId: string, referenceId: string) => releaseBudgetUnfenced(_env, _tenantId, referenceId, fence);
   if (node.kind === 'project-tool') { await executeProjectToolNode(env, graph, node, tenantId, persist, fence); return; }
-  const decision = routeGraphNode(node, { qualityPreference, budgetLeftCents: await budgetLeftCents() }); const availableModels = selectAvailableModels(env, decision.primaryModel, decision.fallbackChain); const selectedPrimaryModel = availableModels.primary; const availableFallbackChain = availableModels.fallbacks; node.selectedModel = selectedPrimaryModel; setNodeStatus(node, 'running'); await persist('running');
+  const decision = routeGraphNode(node, { qualityPreference, budgetLeftCents: await budgetLeftCents() }); const availableModels = await selectAvailableModels(env, decision.primaryModel, decision.fallbackChain); const selectedPrimaryModel = availableModels.primary; const availableFallbackChain = availableModels.fallbacks; node.selectedModel = selectedPrimaryModel; setNodeStatus(node, 'running'); await persist('running');
   const prompt = buildGraphNodePrompt(node, graph); const primaryAttemptNumber = node.attemptedModels.length + 1; const primaryAttemptId = attemptId(graph.id, node.id, primaryAttemptNumber);
   if (!(await reserveBudget(env, tenantId, routeGraphNode(node, { qualityPreference, budgetLeftCents: await budgetLeftCents() }).estimatedCostCents, primaryAttemptId))) { node.error = 'Budget exhausted before node execution'; setNodeStatus(node, 'failed'); await recordGraphAttempt(env.DB, { id: primaryAttemptId, graphId: graph.id, nodeId: node.id, tenantId, attemptNumber: primaryAttemptNumber, model: selectedPrimaryModel, provider: providerName(selectedPrimaryModel), status: 'failed', error: node.error }); await persist('failed', node.error); return; }
   node.attemptedModels.push(selectedPrimaryModel); const primaryStartedAt = new Date().toISOString(); await recordGraphAttempt(env.DB, { id: primaryAttemptId, graphId: graph.id, nodeId: node.id, tenantId, attemptNumber: primaryAttemptNumber, model: selectedPrimaryModel, provider: providerName(selectedPrimaryModel), status: 'running', startedAt: primaryStartedAt }); await persist('running');

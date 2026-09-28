@@ -8,7 +8,7 @@ export const cors = () => honoCors({
     const configured = (c.env as Env).ALLOWED_ORIGINS
       ?.split(',')
       .map(value => value.trim())
-      .filter(Boolean) ?? [];
+      .filter(Boolean) ?? ['https://uden-dashboard.vercel.app'];
 
     // Local development remains available, while production origins must be
     // explicitly configured. Never reflect an arbitrary Origin header.

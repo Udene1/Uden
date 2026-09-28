@@ -5,7 +5,7 @@ import { createTenant, getTenantById, updateTenant } from '../db/queries';
 import { hashApiKey } from '../middleware/auth';
 import { Tenant } from '@ai-work-partner/shared';
 import { writeAudit, requirePermission } from '../services/permissions';
-import { createAuthSession, AuthClient } from '../services/auth-sessions';
+import { createAuthSession, AuthClient, sessionCookie } from '../services/auth-sessions';
 
 export const tenantRoutes = new Hono<HonoEnv>();
 function isClient(value: unknown): value is AuthClient { return value === 'desktop' || value === 'web' || value === 'mobile' || value === 'api'; }
@@ -21,6 +21,7 @@ tenantRoutes.post('/', async c => {
   await c.env.DB.prepare(`INSERT INTO tenant_members (id,tenant_id,subject,role) VALUES (?,?,?,'owner')`).bind(crypto.randomUUID(),tenant.id,subject).run();
   try {
     const session=await createAuthSession(c.env.DB,tenant.id,client,subject);
+    c.header('Set-Cookie', sessionCookie(session.token, session.expiresAt));
     return c.json({tenant,api_key:rawKey,session_token:session.token,expires_at:session.expiresAt,subject,client},201);
   } catch(error) {
     await c.env.DB.prepare('DELETE FROM tenant_members WHERE tenant_id=?').bind(tenant.id).run();

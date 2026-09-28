@@ -182,6 +182,22 @@ jobs:
             npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file="$f"
           done
 
+      - name: Ensure model usage telemetry migration exists
+        run: |
+          set -euo pipefail
+          EXISTS="$(npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "SELECT name FROM sqlite_master WHERE type='table' AND name='usage_records'" --json)"
+          if ! printf '%s' "$EXISTS" | grep -q '"usage_records"'; then
+            echo "usage_records table is missing; bootstrap step should have created it."
+            exit 1
+          fi
+          COLUMNS="$(npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "PRAGMA table_info(usage_records)" --json)"
+          if printf '%s' "$COLUMNS" | grep -q '"actual_model"'; then
+            echo "Model usage telemetry migration already applied."
+          else
+            echo "Applying migrations/0044_model_usage_telemetry.sql"
+            npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=migrations/0044_model_usage_telemetry.sql
+          fi
+
       - name: Ensure registration permission tables exist
         run: |
           set -euo pipefail

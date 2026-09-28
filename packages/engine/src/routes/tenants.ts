@@ -37,6 +37,6 @@ tenantRoutes.post('/', async c => {
     throw error;
   }
 });
-tenantRoutes.get('/',async c=>{const tenant=await getTenantById(c.env.DB,c.get('tenantId'));return c.json({tenant: publicTenant(tenant)});});
+tenantRoutes.get('/',async c=>{const tenant=await getTenantById(c.env.DB,c.get('tenantId'));if(!tenant)return c.json({error:'Tenant not found'},404);return c.json({tenant: publicTenant(tenant)});});
 tenantRoutes.put('/',async c=>{const t=c.get('tenantId');await requirePermission(c.env.DB,t,'settings:write');const body=await c.req.json().catch(()=>({}));const updates:Partial<Tenant>={};if(body.name!==undefined)updates.name=body.name;if(body.qualityPreference!==undefined)updates.qualityPreference=body.qualityPreference;if(body.monthlyBudgetCents!==undefined)updates.monthlyBudgetCents=body.monthlyBudgetCents;if(body.defaultMode!==undefined)updates.defaultMode=body.defaultMode;if(body.bringOwnKeys!==undefined)updates.bringOwnKeys=body.bringOwnKeys;await updateTenant(c.env.DB,t,updates);await writeAudit(c.env.DB,t,'tenant.update','tenant',t,undefined,c.get('requestId'));return c.json({success:true});});
 tenantRoutes.post('/rotate-key',async c=>{const t=c.get('tenantId');await requirePermission(c.env.DB,t,'settings:write');const rawKey=`sk_${crypto.randomUUID().replace(/-/g,'')}`;await updateTenant(c.env.DB,t,{apiKeyHash:await hashApiKey(rawKey)});await writeAudit(c.env.DB,t,'tenant.rotate_key','tenant',t,undefined,c.get('requestId'));return c.json({api_key:rawKey});});

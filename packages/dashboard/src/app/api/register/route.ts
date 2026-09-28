@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const ENGINE_URL =
-  process.env.ENGINE_URL ||
-  process.env.NEXT_PUBLIC_ENGINE_URL ||
-  'https://ai-work-partner-engine.uden-production-deployment.workers.dev';
+// Registration must target the authoritative production engine. Do not inherit a stale Vercel ENGINE_URL here.
+const ENGINE_URL = 'https://ai-work-partner-engine.uden-production-deployment.workers.dev';
 
 export async function POST(request: NextRequest) {
   const upstream = new URL('/api/v1/tenants', ENGINE_URL);

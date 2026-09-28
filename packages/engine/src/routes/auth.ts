@@ -3,6 +3,11 @@ import { HonoEnv } from '../types';
 import { hashApiKey } from '../middleware/auth';
 import { getTenantByApiKey } from '../db/queries';
 import { createAuthSession, revokeAuthSession, AuthClient, sessionCookie, clearSessionCookie, readSessionCookie } from '../services/auth-sessions';
+import { Tenant, TenantPublic } from '@ai-work-partner/shared';
+
+function publicTenant(tenant: Tenant): TenantPublic {
+  return { id: tenant.id, name: tenant.name, email: tenant.email, qualityPreference: tenant.qualityPreference, monthlyBudgetCents: tenant.monthlyBudgetCents, defaultMode: tenant.defaultMode, bringOwnKeys: tenant.bringOwnKeys, createdAt: tenant.createdAt, updatedAt: tenant.updatedAt };
+}
 
 export const authRoutes = new Hono<HonoEnv>();
 
@@ -22,7 +27,7 @@ authRoutes.post('/session', async (c) => {
   const session = await createAuthSession(c.env.DB, tenant.id, client);
   c.header('Set-Cookie', sessionCookie(session.token, session.expiresAt));
   return c.json({
-    tenant,
+    tenant: publicTenant(tenant),
     session_token: session.token,
     expires_at: session.expiresAt,
     subject: session.subject,

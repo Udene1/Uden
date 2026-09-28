@@ -1,13 +1,13 @@
 import { Context, Next } from 'hono';
 import { getTenantByApiKey } from '../db/queries';
-import { getAuthSession } from '../services/auth-sessions';
+import { getAuthSession, readSessionCookie } from '../services/auth-sessions';
 
 export async function hashApiKey(key:string):Promise<string>{const data=new TextEncoder().encode(key);const hashBuffer=await crypto.subtle.digest('SHA-256',data);const hashArray=Array.from(new Uint8Array(hashBuffer));return hashArray.map(b=>b.toString(16).padStart(2,'0')).join('');}
 
 export async function authMiddleware(c:Context,next:Next){
   const authHeader=c.req.header('Authorization');
-  if(!authHeader||!authHeader.startsWith('Bearer '))return c.json({error:'Unauthorized'},401);
-  const token=authHeader.slice(7).trim();
+  const bearer=authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const token=bearer || readSessionCookie(c.req.header('Cookie'));
   if(!token)return c.json({error:'Unauthorized'},401);
 
   if(token.startsWith('us_')){

@@ -1,0 +1,62 @@
+name: Dashboard Production Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "packages/dashboard/**"
+      - ".github/workflows/dashboard-production-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Wait for Vercel production deployment
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            echo "Checking production dashboard (attempt $i/30)"
+            STATUS="$(curl --silent --show-error -o /tmp/register.html -w '%{http_code}' https://uden-dashboard.vercel.app/register || true)"
+            echo "GET /register -> $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              break
+            fi
+            sleep 10
+          done
+          test "$STATUS" = "200"
+
+      - name: Verify production registration proxy reaches the engine
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --silent --show-error --retry 3 --retry-delay 2 \
+            -w '\n%{http_code}' \
+            -X POST 'https://uden-dashboard.vercel.app/api/register' \
+            -H 'Content-Type: application/json' \
+            --data '{}')"
+          STATUS="$(printf '%s' "$RESPONSE" | tail -n1)"
+          BODY="$(printf '%s' "$RESPONSE" | sed '$d')"
+
+          echo "POST /api/register status: $STATUS"
+          echo "POST /api/register body: $BODY"
+
+          # An empty registration must be rejected by the authoritative engine
+          # with its validation error. This proves the real Vercel production
+          # route is executing the POST proxy and reaching /api/v1/tenants.
+          test "$STATUS" = "400"
+          printf '%s' "$BODY" | grep -Fq 'Name is required'
+
+      - name: Production smoke summary
+        run: |
+          {
+            echo "## Dashboard production smoke"
+            echo
+            echo "- GET /register: PASS"
+            echo "- POST /api/register -> engine validation: PASS"
+            echo "- Verified production Vercel -> Cloudflare registration path"
+          } >> "$GITHUB_STEP_SUMMARY"

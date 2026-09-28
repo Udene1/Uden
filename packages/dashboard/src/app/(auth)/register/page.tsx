@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Sparkles, Building2, ArrowRight } from 'lucide-react';
@@ -18,9 +19,11 @@ export default function RegisterPage() {
     
     try {
       const res = await api.registerTenant(name, email);
-      if (res.apiKey) {
-        setGeneratedKey(res.apiKey);
-      }
+      if (!res.apiKey) throw new Error('Registration did not return an API key');
+      const auth = await signIn('credentials', { apiKey: res.apiKey, redirect: false });
+      if (auth?.error) throw new Error('Workspace was created, but dashboard sign-in failed');
+      router.push('/dashboard');
+      router.refresh();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown registration error';

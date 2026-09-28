@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, CheckCircle2, Info, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, TaskMode } from '@/lib/api';
@@ -76,11 +75,11 @@ export default function NewTaskPage() {
             </div>
           </div>
 
-          {!apiKey && <p className="text-sm text-[var(--text-secondary)]">Sign in to start work. The task is created through the authenticated workspace API.</p>}
+
           {error && <div role="alert" className="rounded-lg border border-red-400/30 bg-red-400/5 p-3 text-sm text-red-200">{error}</div>}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[11px] text-[var(--text-muted)]">⌘/Ctrl + Enter starts work</p>
-            <button type="submit" disabled={!prompt.trim() || !apiKey || creating} className="btn btn-primary flex min-h-12 items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">{creating ? 'Creating durable task…' : <>Start work <ArrowRight size={17} /></>}</button>
+            <button type="submit" disabled={!prompt.trim() || creating} className="btn btn-primary flex min-h-12 items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">{creating ? 'Creating durable task…' : <>Start work <ArrowRight size={17} /></>}</button>
           </div>
         </form>
 

@@ -5,8 +5,46 @@ import { checkQuality } from './quality';
 import { escalateTask } from './escalation';
 import { checkBudget, recordUsage } from './cost';
 import { getProvider } from './providers';
+import { discoverAgentRouterModels } from './providers/connection';
 import { createTask, updateTask, getTenantById, getMonthlySpend } from '../db/queries';
 import { Task, TaskStatus } from '@ai-work-partner/shared';
+
+function modelAvailable(env: HonoEnv['Bindings'], modelId: string): boolean {
+  const normalized = modelId.toLowerCase();
+  if (normalized.startsWith('agentrouter/')) return Boolean(env.AGENTROUTER_API_KEY);
+  if (normalized.startsWith('gpt') || normalized.startsWith('o3') || normalized.startsWith('o4')) return Boolean(env.OPENAI_API_KEY);
+  if (normalized.startsWith('claude')) return Boolean(env.ANTHROPIC_API_KEY);
+  if (normalized.startsWith('gemini') || normalized.startsWith('google/')) return Boolean(env.GEMINI_API_KEY || env.GOOGLE_AI_API_KEY);
+  if (normalized.startsWith('deepseek')) return Boolean(env.DEEPSEEK_API_KEY);
+  return false;
+}
+
+async function selectAvailableRouting(
+  env: HonoEnv['Bindings'],
+  routing: { primaryModel: string; fallbackChain: string[] }
+): Promise<{ primaryModel: string; fallbackChain: string[] }> {
+  const ordered = [routing.primaryModel, ...routing.fallbackChain];
+  const available = ordered.filter(
+    (model, index) => model && modelAvailable(env, model) && ordered.indexOf(model) === index
+  );
+
+  if (env.AGENTROUTER_API_KEY) {
+    try {
+      const discovered = await discoverAgentRouterModels(env);
+      for (const modelId of discovered) {
+        const reference = `agentrouter/${modelId}`;
+        if (!available.includes(reference)) available.push(reference);
+      }
+    } catch {
+      // Keep native routing available if live AgentRouter discovery is temporarily unavailable.
+    }
+  }
+
+  return {
+    primaryModel: available[0] || routing.primaryModel,
+    fallbackChain: available.slice(1),
+  };
+}
 
 export async function executeTask(
   env: HonoEnv['Bindings'],
@@ -35,6 +73,8 @@ export async function executeTask(
     classification.estimatedInputTokens,
     classification.estimatedOutputTokens
   );
+  const availableRouting = await selectAvailableRouting(env, routing);
+  const effectiveRouting = { ...routing, ...availableRouting };
 
   const initialStatus: TaskStatus = permissionless ? 'processing' : 'awaiting-approval';
 
@@ -55,21 +95,27 @@ export async function executeTask(
 
   if (!permissionless) {
     task.proposal = {
-      suggestedModel: routing.primaryModel,
-      estimatedCostCents: routing.estimatedCostCents,
-      actionDescription: `Execute task in ${classification.domain} domain using ${routing.primaryModel}`,
-      reasoning: routing.reasoning
+      suggestedModel: effectiveRouting.primaryModel,
+      estimatedCostCents: effectiveRouting.estimatedCostCents,
+      actionDescription: `Execute task in ${classification.domain} domain using ${effectiveRouting.primaryModel}`,
+      reasoning: effectiveRouting.reasoning
     };
   }
 
   // Persist task and associated routing plan
-  await createTask(env.DB, task, routing);
+  await createTask(env.DB, task, effectiveRouting);
 
   if (!permissionless) {
-    return { task, routing };
+    return { task, routing: effectiveRouting };
   }
 
-  return await runTaskExecution(env, task, routing.primaryModel, routing.fallbackChain, classification.expectedFormat);
+  return await runTaskExecution(
+    env,
+    task,
+    effectiveRouting.primaryModel,
+    effectiveRouting.fallbackChain,
+    classification.expectedFormat
+  );
 }
 
 export async function runTaskExecution(

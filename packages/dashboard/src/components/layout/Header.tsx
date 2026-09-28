@@ -25,12 +25,16 @@ export default function Header() {
   const segment = pathname.split('/')[1] || 'dashboard';
   const title = titles[segment] || 'Workspace';
   const user = Boolean(identity);
+  const toggleNavigation = () => {
+    if (window.innerWidth < 768) window.dispatchEvent(new Event('uden:sidebar-mobile'));
+    else window.dispatchEvent(new Event('uden:sidebar-toggle'));
+  };
 
   return (
     <>
       <header className="flex h-14 shrink-0 items-center justify-between border-b bg-[var(--bg-primary)] px-4 md:h-16 md:px-8" style={{ borderColor: 'var(--border-color)' }}>
         <div className="flex min-w-0 items-center gap-2.5 md:gap-3">
-          <button type="button" onClick={() => window.dispatchEvent(new Event('uden:sidebar-toggle'))} aria-label="Toggle sidebar" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] md:h-10 md:w-10" style={{ borderColor: 'var(--border-color)' }}><Menu size={17} /></button>
+          <button type="button" onClick={toggleNavigation} aria-label="Open navigation" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] md:h-10 md:w-10" style={{ borderColor: 'var(--border-color)' }}><Menu size={17} /></button>
           <div className="min-w-0"><h1 className="truncate text-[15px] font-bold tracking-[-.02em] text-[var(--text-primary)] md:text-lg">{title}</h1>{segment === 'dashboard' && <p className="mt-0.5 hidden text-xs text-[var(--text-muted)] sm:block">Plan, execute, verify.</p>}</div>
         </div>
         <div className="flex items-center gap-1 md:gap-2">

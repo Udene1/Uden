@@ -26,7 +26,7 @@ export default function NewTaskPage() {
     setCreating(true);
     setError(null);
     try {
-      const task = await api.createTask(value, mode, undefined, apiKey);
+      const task = await api.createTask(value, mode);
       router.push(`/tasks/${task.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start this work.');

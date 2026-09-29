@@ -384,7 +384,7 @@ jobs:
           trap cleanup EXIT
           echo "=== REAL PROVIDER EXECUTION DIAGNOSTIC ==="
           echo "commit=$GITHUB_SHA run_id=$GITHUB_RUN_ID"
-          REG="$(curl --silent --show-error -w '\n%{http_code}' -H 'Content-Type: application/json' -X POST "$URL/api/v1/tenants" --data "{"name":"CI provider diagnostic $GITHUB_RUN_ID","email":"ci-provider-$GITHUB_RUN_ID@smoke.invalid","client":"web"}")"
+          REG="$(curl --silent --show-error -w '\n%{http_code}' -H 'Content-Type: application/json' -X POST "$URL/api/v1/tenants" --data "$(printf '%s' "{\"name\":\"CI provider diagnostic $GITHUB_RUN_ID\",\"email\":\"ci-provider-$GITHUB_RUN_ID@smoke.invalid\",\"client\":\"web\"}")")"
           REG_STATUS="$(printf '%s' "$REG" | tail -n1)"
           REG_BODY="$(printf '%s' "$REG" | sed '$d')"
           echo "registration_http=$REG_STATUS"
@@ -404,7 +404,7 @@ jobs:
           test "$DIRECT_STATE" = "completed" || { echo "DIAG failure_stage=provider_execution"; exit 1; }
           echo "DIAG direct_provider_execution=PASS"
           GRAPH='{"goal":"Provider graph smoke test","nodes":[{"id":"provider-smoke","title":"Provider smoke","prompt":"Reply with exactly: PROVIDER_GRAPH_SMOKE_OK","dependencies":[],"contextFrom":[],"kind":"model"}]}'
-          GRAPH_RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' -H "Cookie: $COOKIE" -H 'Content-Type: application/json' -X POST "$URL/api/v1/tasks/graph/execute" --data "{"plan":$GRAPH}")"
+          GRAPH_RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' -H "Cookie: $COOKIE" -H 'Content-Type: application/json' -X POST "$URL/api/v1/tasks/graph/execute" --data "$(printf '%s' "{\"plan\":$GRAPH}")")"
           GRAPH_STATUS="$(printf '%s' "$GRAPH_RESPONSE" | tail -n1)"
           GRAPH_BODY="$(printf '%s' "$GRAPH_RESPONSE" | sed '$d')"
           echo "graph_execute_http=$GRAPH_STATUS"

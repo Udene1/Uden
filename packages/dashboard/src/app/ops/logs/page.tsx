@@ -75,7 +75,7 @@ export default function OpsLogsPage() {
             type="password"
             value={token}
             onChange={(event) => setToken(event.target.value)}
-            placeholder="Operator token"
+            placeholder="Cloudflare API token"
             autoComplete="off"
             className="min-w-0 flex-1 rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none"
           />

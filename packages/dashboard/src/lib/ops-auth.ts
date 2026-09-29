@@ -1,21 +1,26 @@
-import { timingSafeEqual } from 'node:crypto';
+const ENGINE_URL =
+  process.env.ENGINE_URL ||
+  process.env.NEXT_PUBLIC_ENGINE_URL ||
+  'https://ai-work-partner-engine.uden-production-deployment.workers.dev';
 
-const CLOUDFLARE_TOKEN_ENV = 'CLOUDFLARE_API_TOKEN';
-
-function safeEqual(a: string, b: string) {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+function bearer(request: Request) {
+  const header = request.headers.get('authorization') ?? '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
-export function isOpsAuthorized(request: Request) {
-  const expected = process.env[CLOUDFLARE_TOKEN_ENV];
-  if (!expected) return false;
+export async function isOpsAuthorized(request: Request) {
+  const credential = bearer(request);
+  if (!credential) return false;
 
-  const header = request.headers.get('authorization') ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-
-  return Boolean(token) && safeEqual(token, expected);
+  try {
+    const response = await fetch(ENGINE_URL + '/api/v1/tenant', {
+      headers: { authorization: 'Bearer ' + credential },
+      cache: 'no-store',
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export function opsUnauthorized() {

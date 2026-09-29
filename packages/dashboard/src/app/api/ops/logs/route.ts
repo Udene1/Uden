@@ -2,6 +2,7 @@ import { isOpsAuthorized, opsUnauthorized } from '@/lib/ops-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const preferredRegion = 'fra1';
 
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 

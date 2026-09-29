@@ -127,6 +127,7 @@ export async function runTaskExecution(
   );
   let successfulModelIndex = -1;
   let response: Awaited<ReturnType<ReturnType<typeof getProvider>['execute']>> | undefined;
+  const providerFailures: string[] = [];
 
   try {
     for (let index = 0; index < candidates.length; index += 1) {
@@ -164,12 +165,14 @@ export async function runTaskExecution(
             await markModelUnavailable(env.DB, task.tenantId, modelId, safe.code);
           }
         }
+        providerFailures.push(modelId + ': ' + safe.message);
         if (isAmbiguousProviderError(safe)) throw safe;
       }
     }
 
     if (!response || successfulModelIndex < 0) {
-      throw new Error('No viable model/provider candidates completed execution');
+      const details = providerFailures.length ? '; attempts: ' + providerFailures.join(' | ') : '';
+      throw new Error('No viable model/provider candidates completed execution' + details);
     }
 
     const quality = checkQuality(response.result, expectedFormat, task.prompt);

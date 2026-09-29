@@ -204,6 +204,12 @@ jobs:
           npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=migrations/0042_registration_permission_tables.sql
           npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --file=migrations/0043_unified_client_sessions.sql
 
+      - name: Verify durable model availability table
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc             --command "SELECT name FROM sqlite_master WHERE type='table' AND name='model_availability'"
+          echo "Verified production D1 model_availability table."
+
       - name: Publish configured provider secrets
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

@@ -4,6 +4,7 @@ import { createExternalAttemptIdentity, requiresReconciliation } from './externa
 import type { ExecutionFence } from './execution-side-effects';
 import { isAmbiguousProviderError, ProviderExecutionError, sanitizeProviderError } from './provider-errors';
 import { recall, formatMemoryContext } from './agent-memory';
+import { logEvent } from './observability';
 
 export type DurableProviderAttempt = {
   attemptId: string;
@@ -71,12 +72,16 @@ export async function executeDurableProviderAttempt(
 
   await markExternalAttemptInFlight(db, tenantId, durableAttemptId, idempotencyKey, fence, memoryContext || undefined, memoryContextHash);
 
+  logEvent('provider_attempt_started', { tenantId, graphId, nodeId, attemptNumber, attemptId: durableAttemptId, model: modelId, provider: modelId, idempotencyKeyPresent: Boolean(idempotencyKey) });
+
   try {
     const result = await provider.execute(executionPrompt, modelId, { ...options, idempotencyKey });
     await markExternalAttemptOutcome(db, tenantId, durableAttemptId, 'completed', fence);
+    logEvent('provider_attempt_completed', { tenantId, graphId, nodeId, attemptNumber, attemptId: durableAttemptId, model: modelId, actualModel: result.actualModel, requestId: result.requestId, promptTokens: result.promptTokens, completionTokens: result.completionTokens });
     return { attemptId: durableAttemptId, idempotencyKey, result };
   } catch (error) {
     const safe = sanitizeProviderError(modelId, error);
+    logEvent('provider_attempt_failed', { tenantId, graphId, nodeId, attemptNumber, attemptId: durableAttemptId, model: modelId, provider: safe.provider, code: safe.code, retryable: safe.retryable, externalOutcome: safe.externalOutcome, error: safe.message });
     await markExternalAttemptOutcome(
       db,
       tenantId,

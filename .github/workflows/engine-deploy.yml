@@ -373,6 +373,57 @@ jobs:
           echo "raw_credentials_printed=false"
           echo "Production authentication contract smoke test v2: PASS"
 
+      - name: Production real provider execution diagnostic
+        run: |
+          set -euo pipefail
+          URL="https://ai-work-partner-engine.uden-production-deployment.workers.dev"
+          WORKDIR="$(mktemp -d)"
+          TENANT_ID=""
+          cleanup() { set +e; if [ -n "$TENANT_ID" ]; then npx wrangler d1 execute DB --remote --config wrangler.production.jsonc --command "DELETE FROM tenants WHERE id='$TENANT_ID'" >/dev/null 2>&1; fi; rm -rf "$WORKDIR"; }
+          trap cleanup EXIT
+          echo "=== REAL PROVIDER EXECUTION DIAGNOSTIC ==="
+          echo "commit=$GITHUB_SHA run_id=$GITHUB_RUN_ID"
+          REG="$(curl --silent --show-error -w '\n%{http_code}' -H 'Content-Type: application/json' -X POST "$URL/api/v1/tenants" --data "{"name":"CI provider diagnostic $GITHUB_RUN_ID","email":"ci-provider-$GITHUB_RUN_ID@smoke.invalid","client":"web"}")"
+          REG_STATUS="$(printf '%s' "$REG" | tail -n1)"
+          REG_BODY="$(printf '%s' "$REG" | sed '$d')"
+          echo "registration_http=$REG_STATUS"
+          test "$REG_STATUS" = "201" || { echo "$REG_BODY"; exit 1; }
+          SESSION="$(printf '%s' "$REG_BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).session_token||""))')"
+          TENANT_ID="$(printf '%s' "$REG_BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).tenant?.id||""))')"
+          test -n "$SESSION"; test -n "$TENANT_ID"
+          COOKIE="uden_session=$SESSION"
+          DIRECT="$(curl --silent --show-error -w '\n%{http_code}' -H "Cookie: $COOKIE" -H 'Content-Type: application/json' -X POST "$URL/api/v1/tasks" --data '{"prompt":"Reply with exactly: PROVIDER_SMOKE_OK","permissionless":true}')"
+          DIRECT_STATUS="$(printf '%s' "$DIRECT" | tail -n1)"
+          DIRECT_BODY="$(printf '%s' "$DIRECT" | sed '$d')"
+          echo "direct_task_http=$DIRECT_STATUS"
+          echo "--- DIRECT TASK DIAGNOSTIC RESPONSE ---"
+          echo "$DIRECT_BODY"
+          test "$DIRECT_STATUS" = "200" || { echo "DIAG failure_stage=task_execution_or_provider"; exit 1; }
+          DIRECT_STATE="$(printf '%s' "$DIRECT_BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.task?.status||"")})')"
+          test "$DIRECT_STATE" = "completed" || { echo "DIAG failure_stage=provider_execution"; exit 1; }
+          echo "DIAG direct_provider_execution=PASS"
+          GRAPH='{"goal":"Provider graph smoke test","nodes":[{"id":"provider-smoke","title":"Provider smoke","prompt":"Reply with exactly: PROVIDER_GRAPH_SMOKE_OK","dependencies":[],"contextFrom":[],"kind":"model"}]}'
+          GRAPH_RESPONSE="$(curl --silent --show-error -w '\n%{http_code}' -H "Cookie: $COOKIE" -H 'Content-Type: application/json' -X POST "$URL/api/v1/tasks/graph/execute" --data "{"plan":$GRAPH}")"
+          GRAPH_STATUS="$(printf '%s' "$GRAPH_RESPONSE" | tail -n1)"
+          GRAPH_BODY="$(printf '%s' "$GRAPH_RESPONSE" | sed '$d')"
+          echo "graph_execute_http=$GRAPH_STATUS"
+          echo "--- GRAPH EXECUTION DIAGNOSTIC RESPONSE ---"
+          echo "$GRAPH_BODY"
+          test "$GRAPH_STATUS" = "200" || { echo "DIAG failure_stage=graph_route"; exit 1; }
+          GRAPH_STATE="$(printf '%s' "$GRAPH_BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);const n=x.graph?.nodes?.[0]||{};process.stdout.write((x.status||"")+"|"+(n.status||"")+"|"+(n.error||"")+"|"+(n.selectedModel||""))})')"
+          GRAPH_RESULT="$(printf '%s' "$GRAPH_STATE" | cut -d'|' -f1)"
+          NODE_RESULT="$(printf '%s' "$GRAPH_STATE" | cut -d'|' -f2)"
+          NODE_ERROR="$(printf '%s' "$GRAPH_STATE" | cut -d'|' -f3)"
+          NODE_MODEL="$(printf '%s' "$GRAPH_STATE" | cut -d'|' -f4)"
+          echo "DIAG graph_status=$GRAPH_RESULT node_status=$NODE_RESULT selected_model=$NODE_MODEL"
+          if [ "$GRAPH_RESULT" != "completed" ] || [ "$NODE_RESULT" != "completed" ]; then
+            echo "DIAG failure_stage=graph_provider_execution"
+            echo "DIAG graph_node_error=$NODE_ERROR"
+            exit 1
+          fi
+          echo "DIAG graph_provider_execution=PASS actual_model=$NODE_MODEL"
+          echo "Production real provider execution diagnostic: PASS"
+
       - name: Write deployment receipt and summary
         if: ${{ always() }}
         env:

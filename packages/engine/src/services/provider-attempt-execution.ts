@@ -13,6 +13,7 @@ export type DurableProviderAttempt = {
 };
 
 /** Executes one durable externally billable attempt without creating duplicate external identities during recovery. */
+// Production diagnostic coverage: provider attempts are observable without prompt/secret logging.
 export async function executeDurableProviderAttempt(
   db: D1Database,
   tenantId: string,

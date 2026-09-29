@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 
-const OPS_TOKEN_ENV = 'UDEN_OPS_TOKEN';
+const CLOUDFLARE_TOKEN_ENV = 'CLOUDFLARE_API_TOKEN';
 
 function safeEqual(a: string, b: string) {
   const left = Buffer.from(a);
@@ -9,7 +9,7 @@ function safeEqual(a: string, b: string) {
 }
 
 export function isOpsAuthorized(request: Request) {
-  const expected = process.env[OPS_TOKEN_ENV];
+  const expected = process.env[CLOUDFLARE_TOKEN_ENV];
   if (!expected) return false;
 
   const header = request.headers.get('authorization') ?? '';

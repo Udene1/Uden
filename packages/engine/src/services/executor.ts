@@ -166,7 +166,9 @@ export async function runTaskExecution(
           }
         }
         providerFailures.push(modelId + ': ' + safe.message);
-        if (isAmbiguousProviderError(safe)) throw safe;
+        // An unknown external outcome is preserved for reconciliation, but it must not terminate the task.
+        // Continue to the next model candidate so one unavailable model cannot sink the whole task.
+        continue;
       }
     }
 

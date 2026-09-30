@@ -20,6 +20,10 @@ export class OpenAIProvider {
     const body: Record<string, any> = { model: modelId, messages };
     if (options?.temperature !== undefined && !modelId.startsWith('o3')) body.temperature = options.temperature;
     if (options?.maxTokens) body.max_tokens = options.maxTokens;
+    if (connection === 'nvidia') {
+      body.top_p = 0.95;
+      body.extra_body = { chat_template_kwargs: { enable_thinking: true }, reasoning_budget: 4096 };
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -29,7 +33,7 @@ export class OpenAIProvider {
 
     const baseUrl = connection === 'agentrouter'
       ? (this.env.AGENTROUTER_OPENAI_BASE_URL || 'https://co.agentrouter.org/v1')
-      : 'https://api.openai.com/v1';
+      : connection === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : 'https://api.openai.com/v1';
 
     const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -41,7 +45,7 @@ export class OpenAIProvider {
     const latencyMs = Date.now() - startTime;
     if (!res.ok) {
       const errorText = await res.text().catch(() => 'Unknown error');
-      throw new Error(`${connection === 'agentrouter' ? 'AgentRouter OpenAI-compatible' : 'OpenAI'} error (${res.status}): ${errorText}`);
+      throw new Error(`${connection === 'agentrouter' ? 'AgentRouter OpenAI-compatible' : connection === 'nvidia' ? 'NVIDIA OpenAI-compatible' : 'OpenAI'} error (${res.status}): ${errorText}`);
     }
 
     const data = await res.json() as any;

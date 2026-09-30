@@ -14,6 +14,20 @@ function registryModelId(modelId: string): string {
  * Pricing is approximate as of mid-2026 — update as providers change rates.
  */
 export const MODEL_REGISTRY: Record<string, ModelConfig> = {
+  // Temporary E2E test model. NVIDIA currently exposes this as a free prototype endpoint.
+  'nvidia/nemotron-3.5-lightning-30b-a3b': {
+    id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    provider: 'nvidia',
+    displayName: 'NVIDIA Nemotron 3.5 Lightning 30B A3B',
+    tier: 2,
+    inputCostPerMillion: 0,
+    outputCostPerMillion: 0,
+    maxInputTokens: 1048576,
+    maxOutputTokens: 16384,
+    strengths: ['general', 'code', 'analysis', 'planning', 'research'],
+    supportsStreaming: true,
+    enabled: true,
+  },
   // ── Tier 1: Budget ─────────────────────────
   'gemini-2.5-flash': {
     id: 'gemini-2.5-flash',

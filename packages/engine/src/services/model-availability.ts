@@ -17,7 +17,9 @@ export interface ModelAvailability {
 const COOLDOWN_SECONDS = 60;
 
 function providerFor(modelReference: string): string {
-  const reference = modelReference.startsWith('agentrouter/')
+  const reference = modelReference.startsWith('nvidia/')
+    ? modelReference.slice('nvidia/'.length)
+    : modelReference.startsWith('agentrouter/')
     ? modelReference.slice('agentrouter/'.length)
     : modelReference;
   if (/^(openai\/|gpt|o3|o4)/i.test(reference)) return modelReference.startsWith('agentrouter/') ? 'agentrouter/openai' : 'openai';

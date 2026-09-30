@@ -43,7 +43,7 @@ export class EngineApi {
   constructor(private readonly baseUrl: string, private readonly apiKey: string) {}
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${this.baseUrl.replace(/\\/$/, '')}${path}`, {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}${path}`, {
       ...options,
       headers: {
         Accept: 'application/json',

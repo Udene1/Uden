@@ -1,4 +1,5 @@
 # Android packaging is intentionally verified on every mobile/workflow change.
+# Release acceptance: embedded JS + production engine URL + no Metro runtime.
 name: Android APK
 
 on:

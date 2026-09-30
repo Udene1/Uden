@@ -5,7 +5,7 @@ import { checkQuality } from './quality';
 import { escalateTask } from './escalation';
 import { checkBudget, recordUsage } from './cost';
 import { getProvider } from './providers';
-import { discoverAgentRouterModels } from './providers/connection';
+import { resolveConnectionCandidates } from './providers/connection';
 import { createTask, updateTask, getTenantById, getMonthlySpend } from '../db/queries';
 import { Task, TaskStatus } from '@ai-work-partner/shared';
 import { sanitizeProviderError, isAmbiguousProviderError } from './provider-errors';
@@ -16,18 +16,10 @@ async function selectAvailableRouting(
   tenantId: string,
   routing: { primaryModel: string; fallbackChain: string[] }
 ): Promise<{ primaryModel: string; fallbackChain: string[] }> {
-  const ordered = [routing.primaryModel, ...routing.fallbackChain];
-  if (env.AGENTROUTER_API_KEY) {
-    try {
-      const discovered = await discoverAgentRouterModels(env);
-      for (const modelId of discovered) {
-        const reference = `agentrouter/${modelId}`;
-        if (!ordered.includes(reference)) ordered.push(reference);
-      }
-    } catch {
-      // Native routing remains usable if live discovery is unavailable.
-    }
-  }
+  const ordered = await resolveConnectionCandidates(
+    env,
+    [routing.primaryModel, ...routing.fallbackChain],
+  );
 
   const available = await resolveModelCandidates(env, tenantId, env.DB, ordered);
   return {

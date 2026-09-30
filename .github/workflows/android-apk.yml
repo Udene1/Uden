@@ -1,4 +1,4 @@
-# Android release packaging is verified on every mobile/shared change.
+# Android packaging is intentionally verified on every mobile/workflow change.
 name: Android APK
 
 on:
@@ -19,9 +19,6 @@ on:
       - 'package-lock.json'
       - '.github/workflows/android-apk.yml'
 
-permissions:
-  contents: write
-
 jobs:
   build-apk:
     name: Build standalone Android release APK
@@ -29,31 +26,24 @@ jobs:
     defaults:
       run:
         working-directory: clients/mobile
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-
       - name: Install root dependencies
         working-directory: .
         run: npm ci
-
       - name: Install mobile dependencies
         run: npm install --no-audit --no-fund
-
       - name: Verify Expo project
         run: npx expo config --type public
-
       - name: Generate Android project
         run: CI=1 npx expo prebuild --platform android --clean
-
       - name: Align Kotlin with Compose compiler
         run: |
           python3 - <<'PY'
@@ -78,54 +68,32 @@ jobs:
           for path in changed:
               print(path)
           PY
-
       - name: Build release APK
         working-directory: clients/mobile/android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Sign release APK
+      - name: Sign standalone APK
         run: |
           set -euo pipefail
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
-
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
           KEYSTORE="$RUNNER_TEMP/uden-release.keystore"
           ALIGNED="$RUNNER_TEMP/uden-release-aligned.apk"
           OUT="Uden-Android-release.apk"
-
           keytool -genkeypair             -keystore "$KEYSTORE"             -storepass "uden-release"             -keypass "uden-release"             -alias uden-release             -keyalg RSA             -keysize 2048             -validity 10000             -dname "CN=Uden Release, OU=Uden, O=Uden, L=Unknown, ST=Unknown, C=NG"             -noprompt
-
           "$BUILD_TOOLS/zipalign" -f -p 4 "$APK" "$ALIGNED"
           "$BUILD_TOOLS/apksigner" sign             --ks "$KEYSTORE"             --ks-pass pass:uden-release             --key-pass pass:uden-release             --out "$OUT"             "$ALIGNED"
           "$BUILD_TOOLS/apksigner" verify --verbose "$OUT"
-
           sha256sum "$OUT" > "$OUT.sha256"
           ls -lh "$OUT"
           cat "$OUT.sha256"
-
       - name: Verify embedded JavaScript bundle
         run: |
           set -euo pipefail
           test -s Uden-Android-release.apk
           unzip -l Uden-Android-release.apk | grep -E 'assets/index\.android\.bundle|index\.android\.bundle' >/dev/null
-          echo 'Embedded Android JavaScript bundle verified; this APK does not depend on Metro.'
-
-      - name: Publish GitHub release
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
-        run: |
-          TAG="android-release-${SHA:0:12}"
-          gh release create "$TAG"             clients/mobile/Uden-Android-release.apk             clients/mobile/Uden-Android-release.apk.sha256             --target "$SHA"             --title "Uden Android Release ${SHA:0:12}"             --notes "Standalone Android release built from commit $SHA.
-
-The JavaScript bundle is embedded in the APK. The app does not require Metro, localhost:8081, USB debugging, or a laptop to start.
-
-Android package: icu.uden.app
-Production engine: https://ai-work-partner-engine.uden-production-deployment.workers.dev"
-
-      - name: Upload APK artifact
+          echo 'Embedded Android JavaScript bundle verified; no Metro dependency.'
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: uden-android-release

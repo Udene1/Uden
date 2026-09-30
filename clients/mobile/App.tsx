@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, StatusBar } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { CheckCircle2, ChevronRight, Clock3, LogOut, Menu, X, Plus, RefreshCw, ShieldCheck, Sparkles, XCircle, Zap, CircleAlert } from 'lucide-react-native';
-import { CLIENT_CAPABILITIES } from '@ai-work-partner/shared';
 import { createEngineApi, defaultEngineUrl, EngineApi, Task, TaskStatus } from './src/api';
 
 const ENGINE_URL_KEY = 'uden.engine.url';
@@ -35,6 +34,7 @@ function ConnectionScreen({ onConnected }: { onConnected: (api: EngineApi, url: 
       }
       if (!resolvedKey) throw new Error('API key is required.');
       const client = createEngineApi(base, resolvedKey);
+      await client.health();
       await client.getTenant();
       await SecureStore.setItemAsync(ENGINE_URL_KEY, base);
       await SecureStore.setItemAsync(API_KEY_KEY, resolvedKey);
@@ -64,7 +64,7 @@ function ConnectionScreen({ onConnected }: { onConnected: (api: EngineApi, url: 
   );
 }
 export default function App() {
-  const capabilities = CLIENT_CAPABILITIES.mobile;
+  const capabilities = ['task.create','task.review','graph.monitor','graph.resume','approval.review','project.view','project.edit','github','google-workspace','origin','usage','audit','autonomous-objectives','code.generate','runtime.recovery'];
   const [api, setApi] = useState<EngineApi | null>(null);
   const [engineUrl, setEngineUrl] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -100,6 +100,7 @@ export default function App() {
         if (!mounted) return;
         if (url && key) {
           const client = createEngineApi(url, key);
+          await client.health();
           await client.getTenant();
           if (!mounted) return;
           setEngineUrl(url); setApi(client); await loadTasks(client);
@@ -202,11 +203,30 @@ export default function App() {
 
         {selectedTask && <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} onApprove={() => void approve(selectedTask)} busy={working} />}
         <Text style={styles.capabilities}>{capabilities.length} mobile capabilities · deeper project workflows stay on desktop</Text>{menuOpen && <View style={styles.drawerBackdrop}><TouchableOpacity style={styles.drawerScrim} onPress={() => setMenuOpen(false)} /><View style={styles.drawer}><View style={styles.drawerHeader}><View><Text style={styles.eyebrow}>UDEN</Text><Text style={styles.drawerTitle}>Navigation</Text></View><TouchableOpacity onPress={() => setMenuOpen(false)} style={styles.iconButton}><X size={18} color={COLORS.muted} /></TouchableOpacity></View><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Work</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => { setMenuOpen(false); setTab('active'); }}><Text style={styles.drawerItemText}>Tasks</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => { setMenuOpen(false); setConnectionsOpen(true); }}><Text style={styles.drawerItemText}>Connections</Text><Text style={styles.drawerHint}>GitHub · Origin / Cursor · Google Workspace</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Projects</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Graphs & history</Text></TouchableOpacity><TouchableOpacity style={styles.drawerItem} onPress={() => setMenuOpen(false)}><Text style={styles.drawerItemText}>Settings</Text></TouchableOpacity></View></View>}
-        {connectionsOpen && <View style={styles.modalBackdrop}><View style={styles.connectionModal}><View style={styles.drawerHeader}><View><Text style={styles.eyebrow}>CONNECTIONS</Text><Text style={styles.drawerTitle}>Connected capabilities</Text></View><TouchableOpacity onPress={() => setConnectionsOpen(false)} style={styles.iconButton}><X size={18} color={COLORS.muted} /></TouchableOpacity></View><Text style={styles.connectionModalText}>Integrations stay here instead of occupying the Work surface.</Text><View style={styles.connectionCard}><Text style={styles.drawerItemText}>GitHub</Text><Text style={styles.drawerHint}>Repository and code context</Text></View><View style={styles.connectionCard}><Text style={styles.drawerItemText}>Origin / Cursor</Text><Text style={styles.drawerHint}>Workspace and repository context</Text></View><View style={styles.connectionCard}><Text style={styles.drawerItemText}>Google Workspace</Text><Text style={styles.drawerHint}>Gmail · Drive · Calendar</Text></View></View></View>}
+        {connectionsOpen && <ConnectionPanel api={api} onClose={() => setConnectionsOpen(false)} />}
         
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function ConnectionPanel({ api, onClose }: { api: EngineApi; onClose: () => void }) {
+  const [busy, setBusy] = useState('');
+  const [status, setStatus] = useState<Record<string,string>>({});
+  const connect = async (name: string, opener: () => Promise<{ authorizationUrl: string }>) => { setBusy(name); try { const result = await opener(); await Linking.openURL(result.authorizationUrl); setStatus(s => ({...s,[name]:'Authorization opened'})); } catch (e) { setStatus(s => ({...s,[name]:e instanceof Error ? e.message : 'Unable to connect'})); } finally { setBusy(''); } };
+  const probe = async (name: string, fn: () => Promise<any>) => { setBusy(name); try { await fn(); setStatus(s => ({...s,[name]:'Connected'})); } catch (e) { setStatus(s => ({...s,[name]:e instanceof Error ? e.message : 'Not connected'})); } finally { setBusy(''); } };
+  return <View style={styles.modalBackdrop}><View style={styles.connectionModal}>
+    <View style={styles.drawerHeader}><View><Text style={styles.eyebrow}>CONNECTIONS</Text><Text style={styles.drawerTitle}>Backend integrations</Text></View><TouchableOpacity onPress={onClose} style={styles.iconButton}><X size={18} color={COLORS.muted}/></TouchableOpacity></View>
+    <Text style={styles.connectionModalText}>OAuth and provider credentials stay on the Uden backend. The APK does not store provider secrets.</Text>
+    <Integration title='GitHub' detail='Repositories, code, PRs and Actions' state={status.github} busy={busy==='github'} onConnect={() => connect('github', () => api.openGitHubConnect())} onProbe={() => probe('github', () => api.getGitHubRepositories())}/>
+    <Integration title='Google Workspace' detail='Gmail, Drive and Calendar' state={status.google} busy={busy==='google'} onConnect={() => connect('google', () => api.openGoogleConnect())} onProbe={() => probe('google', () => api.getGmail())}/>
+    <Integration title='Origin / Cursor' detail='Repository and workspace context' state={status.origin} busy={busy==='origin'} onConnect={() => connect('origin', () => api.openOriginConnect())} onProbe={() => probe('origin', () => api.getOriginRepositories())}/>
+    <View style={styles.connectionCard}><Text style={styles.drawerItemText}>Vercel / MCP</Text><Text style={styles.drawerHint}>Available through Uden's backend MCP/tool path; no direct Vercel secret is embedded in the APK.</Text></View>
+    <View style={styles.connectionCard}><Text style={styles.drawerItemText}>Mobile-safe backend features</Text><Text style={styles.drawerHint}>Tasks · graphs · approvals · projects · project files/search · autonomous objectives · usage/cost · audit/evidence · code generation · runtime recovery.</Text></View>
+  </View></View>;
+}
+function Integration({title,detail,state,busy,onConnect,onProbe}:{title:string;detail:string;state?:string;busy:boolean;onConnect:()=>void;onProbe:()=>void}) {
+  return <View style={styles.connectionCard}><Text style={styles.drawerItemText}>{title}</Text><Text style={styles.drawerHint}>{detail}</Text><Text style={styles.drawerHint}>{state || 'Not checked'}</Text><View style={styles.actionRow}><TouchableOpacity disabled={busy} onPress={onConnect} style={styles.smallAction}><Text style={styles.smallActionText}>{busy ? 'Working…' : 'Connect'}</Text></TouchableOpacity><TouchableOpacity disabled={busy} onPress={onProbe} style={styles.smallAction}><Text style={styles.smallActionText}>Check</Text></TouchableOpacity></View></View>;
 }
 
 function TaskRow({ task, onPress }: { task: Task; onPress: () => void }) {
@@ -338,6 +358,9 @@ const styles = StyleSheet.create({
   errorText: { color: '#ffb0b7', flex: 1, lineHeight: 17, fontSize: 12 },
   muted: { color: COLORS.muted, fontSize: 12 },
   capabilities: { color: '#4e5866', fontSize: 9, textAlign: 'center', marginTop: 5 },
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  smallAction: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 7 },
+  smallActionText: { color: COLORS.accent, fontSize: 10, fontWeight: '800' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   loadingMark: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#10213a', alignItems: 'center', justifyContent: 'center' },
 });

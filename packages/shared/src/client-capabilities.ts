@@ -12,6 +12,15 @@ export type UdenCapability =
   | 'approval.review'
   | 'project.view'
   | 'project.edit'
+  | 'connectors.oauth'
+  | 'workspace.read'
+  | 'workspace.send'
+  | 'code.generate'
+  | 'usage.read'
+  | 'audit.read'
+  | 'objective.manage'
+  | 'runtime.recovery'
+  | 'project.attach-local-folder'
   | 'filesystem.local'
   | 'git.local'
   | 'runtime.local'
@@ -35,6 +44,7 @@ export const CLIENT_CAPABILITIES: Record<UdenClient, readonly UdenCapability[]> 
     'approval.review',
     'project.view',
     'project.edit',
+    'project.attach-local-folder',
     'filesystem.local',
     'git.local',
     'runtime.local',

@@ -14,7 +14,7 @@ function registryModelId(modelId: string): string {
  * Pricing is approximate as of mid-2026 — update as providers change rates.
  */
 export const MODEL_REGISTRY: Record<string, ModelConfig> = {
-  // Temporary E2E test model. NVIDIA currently exposes this as a free prototype endpoint.
+  // Temporary E2E test model. NVIDIA currently exposes this as a free prototype endpoint. // CI trigger
   'nvidia/nemotron-3.5-lightning-30b-a3b': {
     id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
     provider: 'nvidia',

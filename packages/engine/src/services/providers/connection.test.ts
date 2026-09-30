@@ -9,6 +9,13 @@ describe('model connections', () => {
     });
   });
 
+  it('selects NVIDIA for the temporary E2E model', () => {
+    expect(parseModelReference('nvidia/nemotron-3.5-lightning-30b-a3b')).toEqual({
+      modelId: 'nemotron-3.5-lightning-30b-a3b',
+      connection: 'nvidia',
+    });
+  });
+
   it('selects AgentRouter without changing the underlying model id', () => {
     expect(parseModelReference('agentrouter/deepseek-v3')).toEqual({
       modelId: 'deepseek-v3',

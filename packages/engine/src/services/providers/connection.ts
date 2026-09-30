@@ -1,6 +1,6 @@
 import type { Env } from '../../types';
 
-export type ModelConnection = 'native' | 'agentrouter';
+export type ModelConnection = 'native' | 'agentrouter' | 'nvidia';
 
 export interface ParsedModelReference {
   modelId: string;
@@ -9,6 +9,11 @@ export interface ParsedModelReference {
 
 export function parseModelReference(reference: string): ParsedModelReference {
   const value = reference.trim();
+  if (value.startsWith('nvidia/')) {
+    const modelId = value.slice('nvidia/'.length).trim();
+    if (!modelId) throw new Error('Invalid NVIDIA model reference');
+    return { modelId, connection: 'nvidia' };
+  }
   if (value.startsWith('agentrouter/')) {
     const modelId = value.slice('agentrouter/'.length).trim();
     if (!modelId) throw new Error('Invalid AgentRouter model reference');

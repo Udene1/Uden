@@ -24,7 +24,7 @@ export type TaskStatus =
   | 'rejected';
 
 /** AI provider identifiers */
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'agentrouter';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'deepseek' | 'agentrouter' | 'nvidia';
 
 /** Model tier classification */
 export type ModelTier = 1 | 2 | 3; // 1=Budget, 2=Mid, 3=Premium

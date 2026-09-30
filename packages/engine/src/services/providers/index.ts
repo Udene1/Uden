@@ -28,6 +28,7 @@ export function getProvider(env: Env, modelReference: string): AIProvider {
   const { modelId, connection } = parseModelReference(modelReference);
   const providerName = catalogProvider(modelId);
   if (connection === 'agentrouter' && !env.AGENTROUTER_API_KEY) throw new Error('AGENTROUTER_API_KEY is not configured');
+  if (connection === 'nvidia' && !env.NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY is not configured');
 
   let provider: AIProvider;
   // AgentRouter exposes a mixed live catalogue. Claude-family models use its
@@ -36,6 +37,7 @@ export function getProvider(env: Env, modelReference: string): AIProvider {
   // versions or vendor lists.
   if (connection === 'agentrouter' && providerName === 'anthropic') provider = new AnthropicProvider(env);
   else if (connection === 'agentrouter') provider = new OpenAIProvider(env);
+  else if (connection === 'nvidia') provider = new OpenAIProvider(env);
   else if (providerName === 'openai') provider = new OpenAIProvider(env);
   else if (providerName === 'anthropic') provider = new AnthropicProvider(env);
   else if (providerName === 'google') provider = new GoogleProvider(env);

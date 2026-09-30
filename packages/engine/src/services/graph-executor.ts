@@ -25,10 +25,10 @@ export function validateTaskGraphPlan(plan: TaskGraphPlan): void { const ids = n
 export function buildGraphNodePrompt(node: TaskNode, graph: TaskGraph): string { const upstream = node.contextFrom.map((id) => graph.nodes.find((candidate) => candidate.id === id)).filter((candidate): candidate is TaskNode => Boolean(candidate?.output)).map((candidate) => `### ${candidate.id}: ${candidate.title}\nQuality score: ${candidate.qualityScore ?? 'n/a'}\nOutput:\n${candidate.output}`).join('\n\n'); return upstream ? `${node.prompt}\n\nUse the following completed upstream work as context. Do not invent missing upstream results.\n\n${upstream}` : node.prompt; }
 function setNodeStatus(node: TaskNode, status: TaskNodeStatus): void { node.status = status; }
 function providerName(modelReference: string): string {
+  if (modelReference.startsWith('nvidia/')) return 'nvidia';
   const { modelId, connection } = modelReference.startsWith('agentrouter/')
     ? { modelId: modelReference.slice('agentrouter/'.length), connection: 'agentrouter' as const }
     : { modelId: modelReference, connection: 'native' as const };
-  if (connection === 'nvidia') return 'nvidia';
   if (connection === 'agentrouter') {
     if (/^(openai\/|gpt|o3|o4)/i.test(modelId)) return 'agentrouter/openai';
     if (/^(anthropic\/|claude)/i.test(modelId)) return 'agentrouter/anthropic';

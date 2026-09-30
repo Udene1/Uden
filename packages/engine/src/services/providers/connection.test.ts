@@ -51,7 +51,7 @@ describe('model connections', () => {
     fetchMock.mockRestore();
   });
 
-  it('does not replace native routing when AgentRouter discovery is unavailable', async () => {
+  it('keeps AgentRouter first when model discovery is unavailable', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('discovery unavailable'));
     const env = {
       AGENTROUTER_API_KEY: 'test-key',
@@ -62,6 +62,8 @@ describe('model connections', () => {
     } as never;
 
     await expect(resolveConnectionCandidates(env, ['deepseek-v3', 'o3-mini'])).resolves.toEqual([
+      'agentrouter/deepseek-v3',
+      'agentrouter/o3-mini',
       'deepseek-v3',
       'o3-mini',
     ]);

@@ -219,6 +219,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
           AGENTROUTER_API_KEY: ${{ secrets.AGENTROUTER_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           put_secret() {
@@ -235,6 +236,7 @@ jobs:
           put_secret GEMINI_API_KEY "${GEMINI_API_KEY:-}"
           put_secret GOOGLE_AI_API_KEY "${GOOGLE_AI_API_KEY:-}"
           put_secret AGENTROUTER_API_KEY "${AGENTROUTER_API_KEY:-}"
+          put_secret NVIDIA_API_KEY "${NVIDIA_API_KEY:-}"
 
       - name: Production health check
         run: |

@@ -22,6 +22,7 @@ function providerFor(modelReference: string): string {
     : modelReference.startsWith('agentrouter/')
     ? modelReference.slice('agentrouter/'.length)
     : modelReference;
+  if (modelReference.startsWith('nvidia/')) return 'nvidia';
   if (/^(openai\/|gpt|o3|o4)/i.test(reference)) return modelReference.startsWith('agentrouter/') ? 'agentrouter/openai' : 'openai';
   if (/^(anthropic\/|claude)/i.test(reference)) return modelReference.startsWith('agentrouter/') ? 'agentrouter/anthropic' : 'anthropic';
   if (/^(google\/|gemini)/i.test(reference)) return modelReference.startsWith('agentrouter/') ? 'agentrouter/google' : 'google';
@@ -30,6 +31,7 @@ function providerFor(modelReference: string): string {
 }
 
 function configured(env: Env, modelReference: string): boolean {
+  if (modelReference.startsWith('nvidia/')) return Boolean(env.NVIDIA_API_KEY);
   if (modelReference.startsWith('agentrouter/')) return Boolean(env.AGENTROUTER_API_KEY);
   const model = modelReference.toLowerCase();
   if (model.startsWith('gpt') || model.startsWith('o3') || model.startsWith('o4') || model.startsWith('openai/')) return Boolean(env.OPENAI_API_KEY);

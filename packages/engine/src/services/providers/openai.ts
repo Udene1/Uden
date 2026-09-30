@@ -17,12 +17,16 @@ export class OpenAIProvider {
     messages.push({ role: 'user', content: prompt });
 
     const startTime = Date.now();
-    const body: Record<string, any> = { model: modelId, messages };
+    const body: Record<string, any> = {
+      model: connection === 'nvidia' ? `nvidia/${modelId}` : modelId,
+      messages,
+    };
     if (options?.temperature !== undefined && !modelId.startsWith('o3')) body.temperature = options.temperature;
     if (options?.maxTokens) body.max_tokens = options.maxTokens;
     if (connection === 'nvidia') {
       body.top_p = 0.95;
-      body.extra_body = { chat_template_kwargs: { enable_thinking: true }, reasoning_budget: 4096 };
+      body.chat_template_kwargs = { enable_thinking: true };
+      body.reasoning_budget = 4096;
     }
 
     const headers: Record<string, string> = {

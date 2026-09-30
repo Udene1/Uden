@@ -7,9 +7,9 @@ export class OpenAIProvider {
 
   async execute(prompt: string, modelReference: string, options?: ProviderExecutionOptions): Promise<ProviderExecutionResult> {
     const { modelId, connection } = parseModelReference(modelReference);
-    const apiKey = connection === 'agentrouter' ? this.env.AGENTROUTER_API_KEY : this.env.OPENAI_API_KEY;
+    const apiKey = connection === 'agentrouter' ? this.env.AGENTROUTER_API_KEY : connection === 'nvidia' ? this.env.NVIDIA_API_KEY : this.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error(connection === 'agentrouter' ? 'AGENTROUTER_API_KEY is not configured' : 'OPENAI_API_KEY is not configured');
+      throw new Error(connection === 'agentrouter' ? 'AGENTROUTER_API_KEY is not configured' : connection === 'nvidia' ? 'NVIDIA_API_KEY is not configured' : 'OPENAI_API_KEY is not configured');
     }
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];

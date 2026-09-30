@@ -40,6 +40,8 @@ jobs:
         run: npm ci
       - name: Install mobile dependencies
         run: npm install --no-audit --no-fund
+      - name: Install Expo runtime asset dependency
+        run: npx expo install expo-asset --npm
       - name: Verify Expo project
         run: npx expo config --type public
       - name: Generate Android project

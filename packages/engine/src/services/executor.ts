@@ -11,17 +11,20 @@ import { Task, TaskStatus } from '@ai-work-partner/shared';
 import { sanitizeProviderError, isAmbiguousProviderError } from './provider-errors';
 import { resolveModelCandidates, markModelHealthy, markModelUnavailable, markModelCooldown, availabilityFailureKind } from './model-availability';
 
+// TEMPORARY E2E DIAGNOSTIC: force dashboard tasks through NVIDIA until provider execution is confirmed.
+const TEMP_E2E_MODEL = 'nvidia/nemotron-3.5-lightning-30b-a3b';
+
 async function selectAvailableRouting(
   env: HonoEnv['Bindings'],
   tenantId: string,
   routing: { primaryModel: string; fallbackChain: string[] }
-): Promise<{ primaryModel: string; fallbackChain: string[] }> {
+ ): Promise<{ primaryModel: string; fallbackChain: string[] }> {
   const ordered = await resolveConnectionCandidates(
     env,
     [routing.primaryModel, ...routing.fallbackChain],
   );
 
-  const available = await resolveModelCandidates(env, tenantId, env.DB, ordered);
+  const available = await resolveModelCandidates(env, tenantId, env.DB, [TEMP_E2E_MODEL]);
   return {
     primaryModel: available[0] || routing.primaryModel,
     fallbackChain: available.slice(1),

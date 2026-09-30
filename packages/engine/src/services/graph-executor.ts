@@ -28,6 +28,7 @@ function providerName(modelReference: string): string {
   const { modelId, connection } = modelReference.startsWith('agentrouter/')
     ? { modelId: modelReference.slice('agentrouter/'.length), connection: 'agentrouter' as const }
     : { modelId: modelReference, connection: 'native' as const };
+  if (connection === 'nvidia') return 'nvidia';
   if (connection === 'agentrouter') {
     if (/^(openai\/|gpt|o3|o4)/i.test(modelId)) return 'agentrouter/openai';
     if (/^(anthropic\/|claude)/i.test(modelId)) return 'agentrouter/anthropic';

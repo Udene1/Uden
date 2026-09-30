@@ -17,6 +17,7 @@ export interface Env {
   AGENTROUTER_API_KEY?:string;
   AGENTROUTER_OPENAI_BASE_URL?:string;
   AGENTROUTER_ANTHROPIC_BASE_URL?:string;
+  NVIDIA_API_KEY?:string;
   ALERT_WEBHOOK_URL?:string;
   ALLOWED_ORIGINS?:string;
   GOOGLE_CLIENT_ID?:string;

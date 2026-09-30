@@ -425,6 +425,10 @@ jobs:
             exit 1
           fi
           echo "DIAG graph_provider_execution=PASS actual_model=$NODE_MODEL"
+          case "$NODE_MODEL" in
+            nvidia/*) echo "DIAG NVIDIA routing: PASS" ;;
+            *) echo "DIAG NVIDIA routing: FAIL (selected_model=$NODE_MODEL)"; exit 1 ;;
+          esac
           echo "Production real provider execution diagnostic: PASS"
 
       - name: Write deployment receipt and summary

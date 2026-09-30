@@ -79,9 +79,21 @@ export async function resolveConnectionCandidates(
   try {
     discovered = await discoverAgentRouterModels(env);
   } catch {
-    return nativeCandidates;
+    // AgentRouter is still the configured connection even when catalogue
+    // discovery is temporarily unavailable (for example a gateway/WAF issue).
+    // Preserve the router's abstract model preference and let the provider
+    // return model-not-found if that preference is not currently available.
+    return [...new Set([
+      ...nativeCandidates.map((model) => model.startsWith('agentrouter/') ? model : `agentrouter/${model}`),
+      ...nativeCandidates,
+    ])];
   }
-  if (!discovered.length) return nativeCandidates;
+  if (!discovered.length) {
+    return [...new Set([
+      ...nativeCandidates.map((model) => model.startsWith('agentrouter/') ? model : `agentrouter/${model}`),
+      ...nativeCandidates,
+    ])];
+  }
 
   const unused = new Set(discovered);
   const agentRouterCandidates: string[] = [];

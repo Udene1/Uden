@@ -57,6 +57,15 @@ export const CLIENT_CAPABILITIES: Record<UdenClient, readonly UdenCapability[]> 
     'graph.resume',
     'approval.review',
     'project.view',
+    'project.edit',
+    'connectors.oauth',
+    'workspace.read',
+    'workspace.send',
+    'code.generate',
+    'usage.read',
+    'audit.read',
+    'objective.manage',
+    'runtime.recovery',
   ],
 };
 

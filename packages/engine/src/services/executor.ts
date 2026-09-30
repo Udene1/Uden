@@ -26,8 +26,8 @@ async function selectAvailableRouting(
 
   const available = await resolveModelCandidates(env, tenantId, env.DB, [TEMP_E2E_MODEL]);
   return {
-    primaryModel: available[0] || routing.primaryModel,
-    fallbackChain: available.slice(1),
+    primaryModel: available[0] || TEMP_E2E_MODEL,
+    fallbackChain: [],
   };
 }
 
@@ -59,7 +59,7 @@ export async function executeTask(
     classification.estimatedOutputTokens
   );
   const availableRouting = await selectAvailableRouting(env, tenantId, routing);
-  const effectiveRouting = { ...routing, ...availableRouting };
+  const effectiveRouting = { ...routing, ...availableRouting, estimatedCostCents: 0, reasoning: 'TEMPORARY E2E diagnostic: forced NVIDIA Nemotron model.' };
 
   const initialStatus: TaskStatus = permissionless ? 'processing' : 'awaiting-approval';
 

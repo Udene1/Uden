@@ -24,9 +24,10 @@ export class OpenAIProvider {
     if (options?.temperature !== undefined && !modelId.startsWith('o3')) body.temperature = options.temperature;
     if (options?.maxTokens) body.max_tokens = options.maxTokens;
     if (connection === 'nvidia') {
+      // Keep the temporary E2E smoke request deterministic and fast; thinking
+      // can be enabled after the hosted provider path is proven end-to-end.
       body.top_p = 0.95;
-      body.chat_template_kwargs = { enable_thinking: true };
-      body.reasoning_budget = 4096;
+      body.chat_template_kwargs = { enable_thinking: false };
     }
 
     const headers: Record<string, string> = {

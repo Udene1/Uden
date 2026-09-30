@@ -41,7 +41,8 @@ export class OpenAIProvider {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(25000)
+      // NVIDIA hosted inference can take longer for substantive requests, especially with default reasoning behavior.
+      signal: AbortSignal.timeout(connection === 'nvidia' ? 120000 : 25000)
     });
 
     const latencyMs = Date.now() - startTime;

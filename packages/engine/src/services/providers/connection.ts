@@ -1,6 +1,6 @@
 import type { Env } from '../../types';
 
-export type ModelConnection = 'native' | 'agentrouter';
+export type ModelConnection = 'native' | 'agentrouter' | 'nvidia';
 
 export interface ParsedModelReference {
   modelId: string;

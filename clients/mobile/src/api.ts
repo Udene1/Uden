@@ -91,7 +91,7 @@ export class EngineApi {
   }
 
   async health(): Promise<{ status: string; database: string }> {
-    const response = await fetch(`${this.baseUrl.replace(/\\/$/, '')}/health`);
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/health`);
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`Health check failed (${response.status})`);
     return body as { status: string; database: string };

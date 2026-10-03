@@ -2,7 +2,7 @@
   "expo": {
     "name": "Uden",
     "slug": "uden",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "plugins": [
@@ -10,7 +10,7 @@
     ],
     "android": {
       "package": "icu.uden.app",
-      "versionCode": 5
+      "versionCode": 6
     }
   }
 }
